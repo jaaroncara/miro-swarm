@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from ..config import Config
 from ..utils.logger import get_logger
 from .graph_db import GraphDatabase
+from .graph_storage import GraphStorage
 
 logger = get_logger('mirofish.entity_reader')
 
@@ -74,9 +75,36 @@ class EntityReader:
     3. Get related edges and associated nodes for each entity
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, storage: Optional[GraphStorage] = None):
         # api_key parameter kept for backward compatibility
         self.db = GraphDatabase()
+        self.storage = storage
+
+    def _node_labels(self, node: Any) -> List[str]:
+        if hasattr(node, "labels"):
+            return node.labels
+        label = node.get("label", "Entity")
+        return ["Entity"] if label == "Entity" else ["Entity", label]
+
+    def _node_value(self, node: Any, attr: str, key: str, default: Any = "") -> Any:
+        if hasattr(node, attr):
+            return getattr(node, attr)
+        return node.get(key, default)
+
+    def _edge_value(self, edge: Any, attr: str, key: str, default: Any = "") -> Any:
+        if hasattr(edge, attr):
+            return getattr(edge, attr)
+        return edge.get(key, default)
+
+    def _get_nodes(self, graph_id: str):
+        if self.storage is not None:
+            return self.storage.list_nodes()
+        return self.db.get_all_nodes(graph_id)
+
+    def _get_edges(self, graph_id: str):
+        if self.storage is not None:
+            return self.storage.get_edges()
+        return self.db.get_all_edges(graph_id)
 
     def get_all_nodes(self, graph_id: str) -> List[Dict[str, Any]]:
         """
@@ -89,16 +117,16 @@ class EntityReader:
             List of node dicts
         """
         logger.info(f"Fetching all nodes from graph {graph_id}...")
-        nodes = self.db.get_all_nodes(graph_id)
+        nodes = self._get_nodes(graph_id)
 
         nodes_data = []
         for node in nodes:
             nodes_data.append({
-                "uuid": node.uuid_,
-                "name": node.name,
-                "labels": node.labels,
-                "summary": node.summary,
-                "attributes": node.attributes,
+                "uuid": self._node_value(node, "uuid_", "id"),
+                "name": self._node_value(node, "name", "name"),
+                "labels": self._node_labels(node),
+                "summary": self._node_value(node, "summary", "summary"),
+                "attributes": self._node_value(node, "attributes", "attributes", {}),
             })
 
         logger.info(f"Fetched {len(nodes_data)} nodes")
@@ -115,17 +143,17 @@ class EntityReader:
             List of edge dicts
         """
         logger.info(f"Fetching all edges from graph {graph_id}...")
-        edges = self.db.get_all_edges(graph_id)
+        edges = self._get_edges(graph_id)
 
         edges_data = []
         for edge in edges:
             edges_data.append({
-                "uuid": edge.uuid_,
-                "name": edge.name,
-                "fact": edge.fact,
-                "source_node_uuid": edge.source_node_uuid,
-                "target_node_uuid": edge.target_node_uuid,
-                "attributes": edge.attributes,
+                "uuid": self._edge_value(edge, "uuid_", "id"),
+                "name": self._edge_value(edge, "name", "relation"),
+                "fact": self._edge_value(edge, "fact", "fact"),
+                "source_node_uuid": self._edge_value(edge, "source_node_uuid", "source_id"),
+                "target_node_uuid": self._edge_value(edge, "target_node_uuid", "target_id"),
+                "attributes": self._edge_value(edge, "attributes", "attributes", {}),
             })
 
         logger.info(f"Fetched {len(edges_data)} edges")
@@ -147,16 +175,19 @@ class EntityReader:
             return []
 
         try:
-            edges = self.db.get_node_edges(graph_id, node_uuid)
+            if self.storage is not None:
+                edges = self.storage.get_edges(source_id=node_uuid) + self.storage.get_edges(target_id=node_uuid)
+            else:
+                edges = self.db.get_node_edges(graph_id, node_uuid)
             edges_data = []
             for edge in edges:
                 edges_data.append({
-                    "uuid": edge.uuid_,
-                    "name": edge.name,
-                    "fact": edge.fact,
-                    "source_node_uuid": edge.source_node_uuid,
-                    "target_node_uuid": edge.target_node_uuid,
-                    "attributes": edge.attributes,
+                    "uuid": self._edge_value(edge, "uuid_", "id"),
+                    "name": self._edge_value(edge, "name", "relation"),
+                    "fact": self._edge_value(edge, "fact", "fact"),
+                    "source_node_uuid": self._edge_value(edge, "source_node_uuid", "source_id"),
+                    "target_node_uuid": self._edge_value(edge, "target_node_uuid", "target_id"),
+                    "attributes": self._edge_value(edge, "attributes", "attributes", {}),
                 })
             return edges_data
         except Exception as e:
@@ -284,11 +315,17 @@ class EntityReader:
             EntityNode or None
         """
         try:
-            node = self.db.get_node(graph_id, entity_uuid)
+            if self.storage is not None:
+                node = self.storage.get_node(entity_uuid)
+            else:
+                node = self.db.get_node(graph_id, entity_uuid)
             if not node:
                 return None
 
-            edges = self.db.get_node_edges(graph_id, entity_uuid)
+            if self.storage is not None:
+                edges = self.storage.get_edges(source_id=entity_uuid) + self.storage.get_edges(target_id=entity_uuid)
+            else:
+                edges = self.db.get_node_edges(graph_id, entity_uuid)
             all_nodes = self.get_all_nodes(graph_id)
             node_map = {n["uuid"]: n for n in all_nodes}
 
@@ -296,22 +333,26 @@ class EntityReader:
             related_node_uuids = set()
 
             for edge in edges:
-                if edge.source_node_uuid == entity_uuid:
+                edge_source = self._edge_value(edge, "source_node_uuid", "source_id")
+                edge_target = self._edge_value(edge, "target_node_uuid", "target_id")
+                edge_name = self._edge_value(edge, "name", "relation")
+                edge_fact = self._edge_value(edge, "fact", "fact")
+                if edge_source == entity_uuid:
                     related_edges.append({
                         "direction": "outgoing",
-                        "edge_name": edge.name,
-                        "fact": edge.fact,
-                        "target_node_uuid": edge.target_node_uuid,
+                        "edge_name": edge_name,
+                        "fact": edge_fact,
+                        "target_node_uuid": edge_target,
                     })
-                    related_node_uuids.add(edge.target_node_uuid)
+                    related_node_uuids.add(edge_target)
                 else:
                     related_edges.append({
                         "direction": "incoming",
-                        "edge_name": edge.name,
-                        "fact": edge.fact,
-                        "source_node_uuid": edge.source_node_uuid,
+                        "edge_name": edge_name,
+                        "fact": edge_fact,
+                        "source_node_uuid": edge_source,
                     })
-                    related_node_uuids.add(edge.source_node_uuid)
+                    related_node_uuids.add(edge_source)
 
             related_nodes = []
             for related_uuid in related_node_uuids:
@@ -325,11 +366,11 @@ class EntityReader:
                     })
 
             return EntityNode(
-                uuid=node.uuid_,
-                name=node.name,
-                labels=node.labels,
-                summary=node.summary,
-                attributes=node.attributes,
+                uuid=self._node_value(node, "uuid_", "id"),
+                name=self._node_value(node, "name", "name"),
+                labels=self._node_labels(node),
+                summary=self._node_value(node, "summary", "summary"),
+                attributes=self._node_value(node, "attributes", "attributes", {}),
                 related_edges=related_edges,
                 related_nodes=related_nodes,
             )

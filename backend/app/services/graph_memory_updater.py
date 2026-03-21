@@ -16,6 +16,7 @@ from queue import Queue, Empty
 from ..config import Config
 from ..utils.logger import get_logger
 from .graph_db import GraphDatabase
+from .graph_storage import GraphStorage
 
 logger = get_logger('mirofish.graph_memory_updater')
 
@@ -191,7 +192,12 @@ class GraphMemoryUpdater:
     MAX_RETRIES = 3
     RETRY_DELAY = 2
 
-    def __init__(self, graph_id: str, api_key: Optional[str] = None):
+    def __init__(
+        self,
+        graph_id: str,
+        api_key: Optional[str] = None,
+        storage: Optional[GraphStorage] = None,
+    ):
         """
         Initialize the updater.
 
@@ -201,6 +207,7 @@ class GraphMemoryUpdater:
         """
         self.graph_id = graph_id
         self.db = GraphDatabase()
+        self.storage = storage
 
         self._activity_queue: Queue = Queue()
         self._platform_buffers: Dict[str, List[AgentActivity]] = {
@@ -303,11 +310,23 @@ class GraphMemoryUpdater:
 
         for attempt in range(self.MAX_RETRIES):
             try:
-                self.db.add_episode(
-                    graph_id=self.graph_id,
-                    data=combined_text,
-                    type="text"
-                )
+                if self.storage is not None:
+                    self.storage.add_episode(
+                        {
+                            "id": f"activity_{datetime.now().timestamp()}",
+                            "content": combined_text,
+                            "source": "simulation",
+                            "node_ids": [],
+                            "processed": False,
+                            "created_at": datetime.now().isoformat(),
+                        }
+                    )
+                else:
+                    self.db.add_episode(
+                        graph_id=self.graph_id,
+                        data=combined_text,
+                        type="simulation"
+                    )
                 self._total_sent += 1
                 self._total_items_sent += len(activities)
                 display_name = self._get_platform_display_name(platform)
@@ -372,12 +391,17 @@ class GraphMemoryManager:
     _lock = threading.Lock()
 
     @classmethod
-    def create_updater(cls, simulation_id: str, graph_id: str) -> GraphMemoryUpdater:
+    def create_updater(
+        cls,
+        simulation_id: str,
+        graph_id: str,
+        storage: Optional[GraphStorage] = None,
+    ) -> GraphMemoryUpdater:
         """Create a graph memory updater for a simulation"""
         with cls._lock:
             if simulation_id in cls._updaters:
                 cls._updaters[simulation_id].stop()
-            updater = GraphMemoryUpdater(graph_id)
+            updater = GraphMemoryUpdater(graph_id, storage=storage)
             updater.start()
             cls._updaters[simulation_id] = updater
             logger.info(f"Created graph memory updater: simulation_id={simulation_id}, graph_id={graph_id}")

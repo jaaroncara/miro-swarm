@@ -19,6 +19,7 @@ from openai import OpenAI
 
 from ..config import Config
 from .graph_db import GraphDatabase
+from .graph_storage import GraphStorage
 from ..utils.logger import get_logger
 from .entity_reader import EntityNode, EntityReader
 
@@ -182,7 +183,8 @@ class OasisProfileGenerator:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: Optional[str] = None,
-        graph_id: Optional[str] = None
+        graph_id: Optional[str] = None,
+        storage: Optional[GraphStorage] = None,
     ):
         self.api_key = api_key or Config.LLM_API_KEY
         self.base_url = base_url or Config.LLM_BASE_URL
@@ -198,6 +200,7 @@ class OasisProfileGenerator:
 
         # Graph database for retrieving rich context
         self.db = GraphDatabase()
+        self.storage = storage
         self.graph_id = graph_id
 
     def generate_profile_from_entity(
@@ -300,7 +303,16 @@ class OasisProfileGenerator:
             query = f"{entity_name}"
 
             # Search edges (facts/relationships)
-            edge_results = self.db.search(self.graph_id, query, limit=30, scope="edges")
+            if self.storage is not None:
+                edge_results = []
+                query_terms = [term for term in query.lower().split() if term]
+                for edge in self.storage.get_edges():
+                    haystack = f"{edge.get('relation', '')} {edge.get('fact', '')}".lower()
+                    score = sum(1 for term in query_terms if term in haystack)
+                    if score:
+                        edge_results.append(edge)
+            else:
+                edge_results = self.db.search(self.graph_id, query, limit=30, scope="edges")
             all_facts = set()
             for r in edge_results:
                 fact = r.get("fact", "")
@@ -309,7 +321,16 @@ class OasisProfileGenerator:
             results["facts"] = list(all_facts)
 
             # Search nodes (entity summaries)
-            node_results = self.db.search(self.graph_id, query, limit=20, scope="nodes")
+            if self.storage is not None:
+                node_results = [
+                    {
+                        "name": node.get("name", ""),
+                        "summary": node.get("summary", ""),
+                    }
+                    for node in self.storage.search_nodes(query, limit=20)
+                ]
+            else:
+                node_results = self.db.search(self.graph_id, query, limit=20, scope="nodes")
             all_summaries = set()
             for r in node_results:
                 summary = r.get("summary", "")

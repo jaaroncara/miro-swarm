@@ -14,6 +14,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 
 from .graph_db import GraphDatabase
+from .graph_storage import GraphStorage
 
 from ..utils.logger import get_logger
 from ..utils.llm_client import LLMClient
@@ -419,8 +420,13 @@ class GraphToolsService:
     MAX_RETRIES = 3
     RETRY_DELAY = 2.0
 
-    def __init__(self, llm_client: Optional[LLMClient] = None):
+    def __init__(
+        self,
+        llm_client: Optional[LLMClient] = None,
+        storage: Optional[GraphStorage] = None,
+    ):
         self.db = GraphDatabase()
+        self.storage = storage
         # LLM client used for InsightForge sub-query generation
         self._llm_client = llm_client
         logger.info("GraphToolsService initialized successfully (using local GraphDatabase)")
@@ -431,6 +437,22 @@ class GraphToolsService:
         if self._llm_client is None:
             self._llm_client = LLMClient()
         return self._llm_client
+
+    def _node_value(self, node: Any, attr: str, key: str, default: Any = "") -> Any:
+        if hasattr(node, attr):
+            return getattr(node, attr)
+        return node.get(key, default)
+
+    def _node_labels(self, node: Any) -> List[str]:
+        if hasattr(node, "labels"):
+            return node.labels or []
+        label = node.get("label", "Entity")
+        return ["Entity"] if label == "Entity" else ["Entity", label]
+
+    def _edge_value(self, edge: Any, attr: str, key: str, default: Any = "") -> Any:
+        if hasattr(edge, attr):
+            return getattr(edge, attr)
+        return edge.get(key, default)
 
     def _call_with_retry(self, func, operation_name: str, max_retries: int = None):
         """API call with retry mechanism"""
@@ -479,12 +501,10 @@ class GraphToolsService:
         logger.info(f"Graph search: graph_id={graph_id}, query={query[:50]}...")
 
         try:
-            search_results = self.db.search(
-                graph_id=graph_id,
-                query=query,
-                limit=limit,
-                scope=scope
-            )
+            if self.storage is not None:
+                return self._local_search(graph_id, query, limit, scope)
+
+            search_results = self.db.search(graph_id=graph_id, query=query, limit=limit, scope=scope)
 
             facts = []
             edges = []
@@ -645,16 +665,19 @@ class GraphToolsService:
         """
         logger.info(f"Fetching all nodes for graph {graph_id}...")
 
-        nodes = self.db.get_all_nodes(graph_id)
+        if self.storage is not None:
+            nodes = self.storage.list_nodes()
+        else:
+            nodes = self.db.get_all_nodes(graph_id)
 
         result = []
         for node in nodes:
             result.append(NodeInfo(
-                uuid=node.uuid_ or "",
-                name=node.name or "",
-                labels=node.labels or [],
-                summary=node.summary or "",
-                attributes=node.attributes or {}
+                uuid=self._node_value(node, "uuid_", "id") or "",
+                name=self._node_value(node, "name", "name") or "",
+                labels=self._node_labels(node),
+                summary=self._node_value(node, "summary", "summary") or "",
+                attributes=self._node_value(node, "attributes", "attributes", {}) or {}
             ))
 
         logger.info(f"Fetched {len(result)} nodes")
@@ -673,24 +696,27 @@ class GraphToolsService:
         """
         logger.info(f"Fetching all edges for graph {graph_id}...")
 
-        edges = self.db.get_all_edges(graph_id)
+        if self.storage is not None:
+            edges = self.storage.get_edges()
+        else:
+            edges = self.db.get_all_edges(graph_id)
 
         result = []
         for edge in edges:
             edge_info = EdgeInfo(
-                uuid=edge.uuid_ or "",
-                name=edge.name or "",
-                fact=edge.fact or "",
-                source_node_uuid=edge.source_node_uuid or "",
-                target_node_uuid=edge.target_node_uuid or ""
+                uuid=self._edge_value(edge, "uuid_", "id") or "",
+                name=self._edge_value(edge, "name", "relation") or "",
+                fact=self._edge_value(edge, "fact", "fact") or "",
+                source_node_uuid=self._edge_value(edge, "source_node_uuid", "source_id") or "",
+                target_node_uuid=self._edge_value(edge, "target_node_uuid", "target_id") or ""
             )
 
             # Add temporal information
             if include_temporal:
-                edge_info.created_at = edge.created_at
-                edge_info.valid_at = edge.valid_at
-                edge_info.invalid_at = edge.invalid_at
-                edge_info.expired_at = edge.expired_at
+                edge_info.created_at = self._edge_value(edge, "created_at", "created_at", None)
+                edge_info.valid_at = self._edge_value(edge, "valid_at", "valid_at", None)
+                edge_info.invalid_at = self._edge_value(edge, "invalid_at", "invalid_at", None)
+                edge_info.expired_at = self._edge_value(edge, "expired_at", "expired_at", None)
 
             result.append(edge_info)
 
@@ -711,17 +737,17 @@ class GraphToolsService:
         logger.info(f"Fetching node detail: {node_uuid[:8]}...")
 
         try:
-            node = self.db.get_node(graph_id, node_uuid)
+            node = self.storage.get_node(node_uuid) if self.storage is not None else self.db.get_node(graph_id, node_uuid)
 
             if not node:
                 return None
 
             return NodeInfo(
-                uuid=node.uuid_ or "",
-                name=node.name or "",
-                labels=node.labels or [],
-                summary=node.summary or "",
-                attributes=node.attributes or {}
+                uuid=self._node_value(node, "uuid_", "id") or "",
+                name=self._node_value(node, "name", "name") or "",
+                labels=self._node_labels(node),
+                summary=self._node_value(node, "summary", "summary") or "",
+                attributes=self._node_value(node, "attributes", "attributes", {}) or {}
             )
         except Exception as e:
             logger.error(f"Failed to get node detail: {str(e)}")
@@ -741,20 +767,23 @@ class GraphToolsService:
         logger.info(f"Fetching edges for node {node_uuid[:8]}...")
 
         try:
-            edges = self.db.get_node_edges(graph_id, node_uuid)
+            if self.storage is not None:
+                edges = self.storage.get_edges(source_id=node_uuid) + self.storage.get_edges(target_id=node_uuid)
+            else:
+                edges = self.db.get_node_edges(graph_id, node_uuid)
 
             result = []
             for edge in edges:
                 result.append(EdgeInfo(
-                    uuid=edge.uuid_ or "",
-                    name=edge.name or "",
-                    fact=edge.fact or "",
-                    source_node_uuid=edge.source_node_uuid or "",
-                    target_node_uuid=edge.target_node_uuid or "",
-                    created_at=edge.created_at,
-                    valid_at=edge.valid_at,
-                    invalid_at=edge.invalid_at,
-                    expired_at=edge.expired_at
+                    uuid=self._edge_value(edge, "uuid_", "id") or "",
+                    name=self._edge_value(edge, "name", "relation") or "",
+                    fact=self._edge_value(edge, "fact", "fact") or "",
+                    source_node_uuid=self._edge_value(edge, "source_node_uuid", "source_id") or "",
+                    target_node_uuid=self._edge_value(edge, "target_node_uuid", "target_id") or "",
+                    created_at=self._edge_value(edge, "created_at", "created_at", None),
+                    valid_at=self._edge_value(edge, "valid_at", "valid_at", None),
+                    invalid_at=self._edge_value(edge, "invalid_at", "invalid_at", None),
+                    expired_at=self._edge_value(edge, "expired_at", "expired_at", None)
                 ))
 
             logger.info(f"Found {len(result)} edges related to the node")
