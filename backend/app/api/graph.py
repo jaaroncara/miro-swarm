@@ -229,10 +229,11 @@ def list_tasks():
     List all tasks
     """
     tasks = TaskManager().list_tasks()
+    serialized_tasks = [task if isinstance(task, dict) else task.to_dict() for task in tasks]
     
     return jsonify({
         "success": True,
-        "data": [t.to_dict() for t in tasks],
+        "data": serialized_tasks,
         "count": len(tasks)
     })
 
