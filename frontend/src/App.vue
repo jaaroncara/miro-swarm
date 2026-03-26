@@ -7,6 +7,30 @@
 </script>
 
 <style>
+:root {
+  /* High-Contrast Dark Theme Variables */
+  --bg-primary: #121212;
+  --bg-secondary: #1E1E1E;
+  --bg-tertiary: #2D2D2D;
+  --bg-scrollbar-track: #1A1A1A;
+  
+  --text-primary: #FFFFFF;
+  --text-secondary: #B0B0B0;
+  --text-muted: #808080;
+  
+  --border-color: #333333;
+  --border-hover: #555555;
+  
+  --accent-color: #4A90E2;    /* Kept some blue for accent where needed */
+  --accent-hover: #357ABD;
+  
+  /* Status Colors */
+  --success-color: #28a745;
+  --error-color: #dc3545;
+  --warning-color: #ffc107;
+  --info-color: #17a2b8;
+}
+
 /* Global style reset */
 * {
   margin: 0;
@@ -18,8 +42,8 @@
   font-family: 'JetBrains Mono', 'Space Grotesk', 'Noto Sans SC', monospace;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: #000000;
-  background-color: #ffffff;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
 }
 
 /* Scrollbar styles */
@@ -29,15 +53,15 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--bg-scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #000000;
+  background: var(--border-color);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #333333;
+  background: var(--border-hover);
 }
 
 /* Global button styles */

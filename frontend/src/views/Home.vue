@@ -2,9 +2,9 @@
   <div class="home-container">
     <!-- Top Navigation Bar -->
     <nav class="navbar">
-      <div class="nav-brand">MIROFISH</div>
+      <div class="nav-brand">SWARM ANALYTICS</div>
       <div class="nav-links">
-        <a href="https://github.com/666ghj/MiroFish" target="_blank" class="github-link">
+        <a href="https://github.com/jaaroncara" target="_blank" class="github-link">
           Visit our Github page <span class="arrow">↗</span>
         </a>
       </div>
@@ -21,12 +21,12 @@
 
           <h1 class=”main-title”>
             Upload Any Report<br>
-            <span class=”gradient-text”>Predict the Future Instantly</span>
+            <span class=”gradient-text”>Predict Business Actions</span>
           </h1>
 
           <div class=”hero-desc”>
             <p>
-              Even with just a single piece of text, <span class=”highlight-bold”>MiroFish</span> can extract reality seeds from it and automatically generate a parallel world composed of up to <span class=”highlight-orange”>millions of Agents</span>. Inject variables from a god's-eye view and find <span class=”highlight-code”>”local optima”</span> in dynamic environments through complex swarm interactions.
+              Even with just a single piece of text, <span class=”highlight-bold”>Swarm Analytics</span> can extract reality seeds from it and automatically generate a parallel world composed of up to <span class=”highlight-orange”>millions of Agents</span>. Inject variables from a god's-eye view and find <span class=”highlight-code”>”local optima”</span> in dynamic environments through complex swarm interactions.
             </p>
             <p class=”slogan-text”>
               Let the future rehearse among Agents, let decisions prevail after countless trials<span class=”blinking-cursor”>_</span>
@@ -39,7 +39,7 @@
         <div class="hero-right">
           <!-- Logo Area -->
           <div class="logo-container">
-            <img src="../assets/logo/MiroFish_logo_left.jpeg" alt="MiroFish Logo" class="hero-logo" />
+            <img src="../assets/logo/swarm-analytics-logo.png" alt="Swarm Analytics Logo" class="hero-logo" />
           </div>
           
           <button class="scroll-down-btn" @click="scrollToBottom">
