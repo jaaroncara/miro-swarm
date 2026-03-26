@@ -1433,7 +1433,7 @@ Return the sub-question list in JSON format."""
                 # Always output dual-platform markers
                 twitter_text = twitter_response if twitter_response else "(No response from this platform)"
                 reddit_text = reddit_response if reddit_response else "(No response from this platform)"
-                response_text = f"[Twitter Platform Response]\n{twitter_text}\n\n[Reddit Platform Response]\n{reddit_text}"
+                response_text = f"[Slack Channel Response]\n{twitter_text}\n\n[Internal Email Response]\n{reddit_text}"
 
                 # Extract key quotes (from responses on both platforms)
                 import re

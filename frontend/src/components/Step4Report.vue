@@ -838,9 +838,9 @@ const parseInterview = (text) => {
       if (answerMatch) {
         const answerText = answerMatch[1].trim()
 
-        // Separate Twitter and Reddit answers
-        const twitterMatch = answerText.match(/【Twitter平台回答】\n?([\s\S]*?)(?=【Reddit平台回答】|$)/)
-        const redditMatch = answerText.match(/【Reddit平台回答】\n?([\s\S]*?)$/)
+        // Separate Slack (Twitter) and Email (Reddit) answers
+        const twitterMatch = answerText.match(/(?:【Twitter平台回答】|\[Twitter Platform Response\]|\[Slack Channel Response\])\n?([\s\S]*?)(?=(?:【Reddit平台回答】|\[Reddit Platform Response\]|\[Internal Email Response\])|$)/)
+        const redditMatch = answerText.match(/(?:【Reddit平台回答】|\[Reddit Platform Response\]|\[Internal Email Response\])\n?([\s\S]*?)$/)
 
         if (twitterMatch) {
           interview.twitterAnswer = twitterMatch[1].trim()
@@ -852,11 +852,11 @@ const parseInterview = (text) => {
         // Platform fallback logic (backward compat: only one platform tag present)
         if (!twitterMatch && redditMatch) {
           // Only Reddit answer - copy as default display if not placeholder text
-          if (interview.redditAnswer && interview.redditAnswer !== '（该平台未获得回复）') {
+          if (interview.redditAnswer && !interview.redditAnswer.includes('未获得回复') && !interview.redditAnswer.includes('No response')) {
             interview.twitterAnswer = interview.redditAnswer
           }
         } else if (twitterMatch && !redditMatch) {
-          if (interview.twitterAnswer && interview.twitterAnswer !== '（该平台未获得回复）') {
+          if (interview.twitterAnswer && !interview.twitterAnswer.includes('未获得回复') && !interview.twitterAnswer.includes('No response')) {
             interview.redditAnswer = interview.twitterAnswer
           }
         } else if (!twitterMatch && !redditMatch) {
@@ -1327,7 +1327,7 @@ const InterviewDisplay = {
     const isPlaceholderText = (text) => {
       if (!text) return true
       const t = text.trim()
-      return t === '（该平台未获得回复）' || t === '(该平台未获得回复)' || t === '[无回复]'
+      return t === '（该平台未获得回复）' || t === '(该平台未获得回复)' || t === '[无回复]' || t.includes('No response from this platform')
     }
 
     // Try to split answer by question numbers
@@ -1512,7 +1512,7 @@ const InterviewDisplay = {
                           h('line', { x1: '2', y1: '12', x2: '22', y2: '12' }),
                           h('path', { d: 'M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z' })
                         ]),
-                        h('span', {}, 'World 1')
+                        h('span', {}, 'Slack')
                       ]),
                       h('button', {
                         class: ['platform-btn', { active: currentPlatform === 'reddit' }],
@@ -1521,7 +1521,7 @@ const InterviewDisplay = {
                         h('svg', { class: 'platform-icon', viewBox: '0 0 24 24', width: 12, height: 12, fill: 'none', stroke: 'currentColor', 'stroke-width': 2 }, [
                           h('path', { d: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' })
                         ]),
-                        h('span', {}, 'World 2')
+                        h('span', {}, 'Email')
                       ])
                     ])
                   ]),

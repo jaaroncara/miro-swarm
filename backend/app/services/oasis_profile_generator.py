@@ -167,14 +167,14 @@ class OasisProfileGenerator:
 
     # Individual entity types (require generating specific personas)
     INDIVIDUAL_ENTITY_TYPES = [
-        "student", "alumni", "professor", "person", "publicfigure",
-        "expert", "faculty", "official", "journalist", "activist"
+        "employee", "manager", "director", "executive", "person", "staff",
+        "analyst", "specialist", "coordinator", "consultant"
     ]
 
     # Group/organization entity types (require generating representative personas)
     GROUP_ENTITY_TYPES = [
-        "university", "governmentagency", "organization", "ngo",
-        "mediaoutlet", "company", "institution", "group", "community"
+        "department", "team", "organization", "committee",
+        "board", "company", "division", "group", "function"
     ]
 
     def __init__(
@@ -607,7 +607,7 @@ class OasisProfileGenerator:
 
     def _get_system_prompt(self, is_individual: bool) -> str:
         """Get the system prompt"""
-        base_prompt = "You are an expert in generating social media user profiles. Generate detailed, realistic personas for opinion simulation that reconstruct real-world situations as closely as possible. You must return valid JSON format, and all string values must not contain unescaped newline characters. Use English."
+        base_prompt = "You are an expert in generating business and corporate employee profiles. Generate detailed, realistic personas for organizational decision-making simulations that reconstruct corporate environments (like Slack or internal forums) as closely as possible. You must return valid JSON format, and all string values must not contain unescaped newline characters. Use English."
         return base_prompt
 
     def _build_individual_persona_prompt(
@@ -623,7 +623,8 @@ class OasisProfileGenerator:
         attrs_str = json.dumps(entity_attributes, ensure_ascii=False) if entity_attributes else "None"
         context_str = context[:3000] if context else "No additional context"
 
-        return f"""Generate a detailed social media user persona for this entity, reconstructing real-world situations as closely as possible.
+        return f"""Generate a detailed corporate employee persona for this entity, reconstructing a realistic business environment (e.g. Slack, Emails) as closely as possible.
+Consider classifying them into one of the following departments if applicable: Finance, Marketing, Analytics, Data Science, Sales, Strategy, HR.
 
 Entity Name: {entity_name}
 Entity Type: {entity_type}
@@ -635,21 +636,21 @@ Context Information:
 
 Please generate JSON containing the following fields:
 
-1. bio: Social media bio, 200 words
-2. persona: Detailed persona description (2000 words of plain text), must include:
-   - Basic information (age, occupation, educational background, location)
-   - Personal background (important experiences, connections to events, social relationships)
-   - Personality traits (MBTI type, core personality, emotional expression style)
-   - Social media behavior (posting frequency, content preferences, interaction style, language characteristics)
-   - Stances and opinions (attitudes toward topics, content that might provoke or move them)
-   - Unique characteristics (catchphrases, special experiences, personal hobbies)
-   - Personal memory (an important part of the persona, introduce this individual's connection to events, as well as their existing actions and reactions during events)
+1. bio: Professional bio, 200 words
+2. persona: Detailed corporate persona description (2000 words of plain text), must include:
+   - Basic information (age, job title, department, seniority level, location)
+   - Professional background (career history, connections to company events, cross-functional relationships)
+   - Personality traits (MBTI type, core personality, emotional expression style in workplace)
+   - Communication behavior (Slack/Email messaging frequency, collaboration style, corporate language characteristics)
+   - Stances and business opinions (attitudes toward strategic company topics, changes, risk tolerance)
+   - Unique characteristics (workplace catchphrases, operational habits)
+   - Professional memory (an important part of the persona, introduce this individual's connection to previous business decisions, as well as their actions during critical projects)
 3. age: Age as a number (must be an integer)
 4. gender: Gender, must be in English: "male" or "female"
 5. mbti: MBTI type (e.g., INTJ, ENFP, etc.)
 6. country: Country
-7. profession: Profession
-8. interested_topics: Array of topics of interest
+7. profession: Job Title
+8. interested_topics: Array of business focus areas or departmental interests
 
 Important:
 - All field values must be strings or numbers, do not use newline characters
@@ -672,7 +673,8 @@ Important:
         attrs_str = json.dumps(entity_attributes, ensure_ascii=False) if entity_attributes else "None"
         context_str = context[:3000] if context else "No additional context"
 
-        return f"""Generate a detailed social media account profile for this organization/group entity, reconstructing real-world situations as closely as possible.
+        return f"""Generate a detailed corporate team/department profile for this organization group entity, reconstructing a realistic business environment as closely as possible.
+Consider classifying them into one of the following domains if applicable: Finance, Marketing, Analytics, Data Science, Sales, Strategy, HR.
 
 Entity Name: {entity_name}
 Entity Type: {entity_type}
@@ -684,28 +686,28 @@ Context Information:
 
 Please generate JSON containing the following fields:
 
-1. bio: Official account bio, 200 words, professional and appropriate
-2. persona: Detailed account profile description (2000 words of plain text), must include:
-   - Organization basic information (official name, organizational nature, founding background, main functions)
-   - Account positioning (account type, target audience, core functions)
-   - Communication style (language characteristics, common expressions, taboo topics)
-   - Content publishing characteristics (content types, publishing frequency, active time periods)
-   - Stances and attitudes (official positions on core topics, approach to handling controversies)
-   - Special notes (represented group profile, operational habits)
-   - Organizational memory (an important part of the persona, introduce this organization's connection to events, as well as its existing actions and reactions during events)
-3. age: Fixed at 30 (virtual age for organizational accounts)
-4. gender: Fixed as "other" (organizational accounts use "other" to indicate non-individual)
-5. mbti: MBTI type, used to describe the account style, e.g., ISTJ for rigorous and conservative
+1. bio: Official department/team bio, 200 words, professional and appropriate
+2. persona: Detailed department profile description (2000 words of plain text), must include:
+   - Organization basic information (official name, organizational nature, core business functions within the company)
+   - Team positioning (team type, key stakeholders, core OKRs/KPIs)
+   - Communication style (corporate language characteristics, common business expressions, meeting styles)
+   - Content publishing characteristics (types of updates shared, announcements, active times)
+   - Stances and attitudes (official department positions on core business topics, approach to handling cross-functional alignment)
+   - Special notes (represented team culture, operational processes)
+   - Department memory (an important part of the persona, introduce this team's connection to past business initiatives, as well as its existing actions and reactions during company milestones)
+3. age: Fixed at 30 (virtual age for team accounts)
+4. gender: Fixed as "other" (team accounts use "other" to indicate non-individual)
+5. mbti: MBTI type, used to describe the department style, e.g., ISTJ for Finance, ENFJ for Marketing
 6. country: Country
-7. profession: Description of organizational function
-8. interested_topics: Array of areas of interest
+7. profession: Description of team function
+8. interested_topics: Array of business areas of interest
 
 Important:
 - All field values must be strings or numbers, null values are not allowed
 - persona must be a coherent text description, do not use newline characters
 - Use English (gender field must use English "other")
 - age must be the integer 30, gender must be the string "other"
-- Organizational account communication must match its identity and positioning"""
+- Team communication must match its business function and positioning"""
 
     def _generate_profile_rule_based(
         self,
@@ -719,52 +721,52 @@ Important:
         # Generate different personas based on entity type
         entity_type_lower = entity_type.lower()
 
-        if entity_type_lower in ["student", "alumni"]:
+        if entity_type_lower in ["analyst", "specialist", "coordinator"]:
             return {
-                "bio": f"{entity_type} with interests in academics and social issues.",
-                "persona": f"{entity_name} is a {entity_type.lower()} who is actively engaged in academic and social discussions. They enjoy sharing perspectives and connecting with peers.",
-                "age": random.randint(18, 30),
+                "bio": f"{entity_type} focused on execution and daily operations.",
+                "persona": f"{entity_name} is a {entity_type.lower()} who is actively engaged in operational tasks. They enjoy sharing data-driven perspectives and collaborating with peers.",
+                "age": random.randint(22, 35),
                 "gender": random.choice(["male", "female"]),
                 "mbti": random.choice(self.MBTI_TYPES),
                 "country": random.choice(self.COUNTRIES),
-                "profession": "Student",
-                "interested_topics": ["Education", "Social Issues", "Technology"],
+                "profession": entity_type.capitalize(),
+                "interested_topics": ["Operations", "Process Improvement", "Team Culture"],
             }
 
-        elif entity_type_lower in ["publicfigure", "expert", "faculty"]:
+        elif entity_type_lower in ["executive", "director", "manager"]:
             return {
-                "bio": f"Expert and thought leader in their field.",
-                "persona": f"{entity_name} is a recognized {entity_type.lower()} who shares insights and opinions on important matters. They are known for their expertise and influence in public discourse.",
+                "bio": f"Leader and strategic decision-maker.",
+                "persona": f"{entity_name} is a {entity_type.lower()} who drives business strategy and aligns teams. They focus on high-level goals and mitigate business risks.",
                 "age": random.randint(35, 60),
                 "gender": random.choice(["male", "female"]),
-                "mbti": random.choice(["ENTJ", "INTJ", "ENTP", "INTP"]),
+                "mbti": random.choice(["ENTJ", "INTJ", "ESTJ", "ISTJ"]),
                 "country": random.choice(self.COUNTRIES),
-                "profession": entity_attributes.get("occupation", "Expert"),
-                "interested_topics": ["Politics", "Economics", "Culture & Society"],
+                "profession": entity_attributes.get("occupation", entity_type.capitalize()),
+                "interested_topics": ["Strategy", "Financials", "Leadership"],
             }
 
-        elif entity_type_lower in ["mediaoutlet", "socialmediaplatform"]:
+        elif entity_type_lower in ["marketing", "communications", "hr"]:
             return {
-                "bio": f"Official account for {entity_name}. News and updates.",
-                "persona": f"{entity_name} is a media entity that reports news and facilitates public discourse. The account shares timely updates and engages with the audience on current events.",
+                "bio": f"Official channel for {entity_name}. Updates and employee engagement.",
+                "persona": f"{entity_name} facilitates internal communications and builds company culture. They share timely updates on company-wide initiatives.",
                 "age": 30,  # Virtual age for organizations
                 "gender": "other",  # Organizations use "other"
-                "mbti": "ISTJ",  # Organization style: rigorous and conservative
-                "country": "China",
-                "profession": "Media",
-                "interested_topics": ["General News", "Current Events", "Public Affairs"],
+                "mbti": "ENFJ",  # Organization style: communicative and people-focused
+                "country": "US",
+                "profession": "Internal Communications",
+                "interested_topics": ["Company Culture", "Announcements", "Employee Engagement"],
             }
 
-        elif entity_type_lower in ["university", "governmentagency", "ngo", "organization"]:
+        elif entity_type_lower in ["department", "team", "committee", "board"]:
             return {
                 "bio": f"Official account of {entity_name}.",
-                "persona": f"{entity_name} is an institutional entity that communicates official positions, announcements, and engages with stakeholders on relevant matters.",
+                "persona": f"{entity_name} is a functional unit that communicates official directives, project updates, and engages with cross-functional partners.",
                 "age": 30,  # Virtual age for organizations
                 "gender": "other",  # Organizations use "other"
                 "mbti": "ISTJ",  # Organization style: rigorous and conservative
-                "country": "China",
-                "profession": entity_type,
-                "interested_topics": ["Public Policy", "Community", "Official Announcements"],
+                "country": "US",
+                "profession": "Business Unit",
+                "interested_topics": ["Business Objectives", "Project Milestones", "Compliance"],
             }
 
         else:

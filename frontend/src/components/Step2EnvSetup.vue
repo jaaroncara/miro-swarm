@@ -272,7 +272,7 @@
               <div class="platforms-grid">
                 <div v-if="simulationConfig.twitter_config" class="platform-card">
                   <div class="platform-card-header">
-                    <span class="platform-name">Platform 1: Plaza / Info Feed</span>
+                    <span class="platform-name">Platform 1: Slack Messages / Company Channels</span>
                   </div>
                   <div class="platform-params">
                     <div class="param-row">
@@ -299,7 +299,7 @@
                 </div>
                 <div v-if="simulationConfig.reddit_config" class="platform-card">
                   <div class="platform-card-header">
-                    <span class="platform-name">Platform 2: Topic / Community</span>
+                    <span class="platform-name">Platform 2: Internal Emails / Distribution Lists</span>
                   </div>
                   <div class="platform-params">
                     <div class="param-row">
@@ -991,7 +991,7 @@ const fetchConfigRealtime = async () => {
           addLog(`  ├─ Duration: ${data.summary.simulation_hours} hours`)
           addLog(`  ├─ Initial posts: ${data.summary.initial_posts_count}`)
           addLog(`  ├─ Hot topics: ${data.summary.hot_topics_count}`)
-          addLog(`  └─ Platform config: Twitter ${data.summary.has_twitter_config ? '✓' : '✗'}, Reddit ${data.summary.has_reddit_config ? '✓' : '✗'}`)
+          addLog(`  └─ Platform config: Slack/Teams ${data.summary.has_twitter_config ? '✓' : '✗'}, Emails ${data.summary.has_reddit_config ? '✓' : '✗'}`)
         }
 
         // Show time config details

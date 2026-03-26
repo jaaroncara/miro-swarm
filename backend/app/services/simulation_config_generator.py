@@ -542,16 +542,16 @@ class SimulationConfigGenerator:
 Please generate a time configuration JSON.
 
 ### General Principles (for reference only, adjust flexibly based on specific events and participant groups):
-- Follow typical daily activity patterns for the target user population
+- Follow typical daily corporate activity patterns for the organization
 - 0-5 AM: almost no activity (activity multiplier 0.05)
-- 6-8 AM: gradually increasing activity (activity multiplier 0.4)
-- 9 AM-6 PM: moderate activity during work hours (activity multiplier 0.7)
-- 7-10 PM: peak activity period (activity multiplier 1.5)
-- After 11 PM: declining activity (activity multiplier 0.5)
-- General pattern: low activity in early morning, gradually increasing in morning, moderate during work hours, peak in evening
+- 6-8 AM: gradually increasing activity as people log on (activity multiplier 0.4)
+- 9 AM-6 PM: high activity during work hours (activity multiplier 1.5)
+- 7-10 PM: declining activity as people log off (activity multiplier 0.3)
+- After 11 PM: almost no activity (activity multiplier 0.1)
+- General pattern: low activity outside work hours, high activity during work block
 - **Important**: The example values below are for reference only. You should adjust specific time periods based on the nature of the event and characteristics of participant groups.
-  - Example: Student groups may peak at 9-11 PM; media may be active all day; official institutions only during work hours
-  - Example: Breaking news may cause late-night discussions, off_peak_hours can be shortened accordingly
+  - Example: Global teams may be active across multiple time zones; leadership may be active off-hours.
+  - Example: Urgent incidents may cause late-night discussions, off_peak_hours can be shortened accordingly
 
 ### Return JSON format (no markdown)
 
@@ -677,12 +677,12 @@ Simulation requirement: {simulation_requirement}
 
 ## Task
 Please generate an event configuration JSON:
-- Extract trending topic keywords
-- Describe the narrative development direction
-- Design initial post content; **each post must specify a poster_type (publisher type)**
+- Extract trending topic keywords from a business context
+- Describe the narrative strategy/development direction
+- Design initial communication content (Slack/Email messages); **each post must specify a poster_type (department/role type)**
 
-**Important**: poster_type must be selected from the "Available Entity Types" above, so that initial posts can be assigned to suitable Agents for publishing.
-For example: official statements should be published by Official/University types, news by MediaOutlet types, student opinions by Student types.
+**Important**: poster_type must be selected from the "Available Entity Types" above, so that initial updates can be assigned to suitable Agents.
+For example: official policies should be published by Department/Executive types, updates by HR/Communications, and feedback by Employee/Analyst types.
 
 Return JSON format (no markdown):
 {{
@@ -695,7 +695,7 @@ Return JSON format (no markdown):
     "reasoning": "<brief explanation>"
 }}"""
 
-        system_prompt = "You are a public opinion analysis expert. Return pure JSON format. Note that poster_type must exactly match available entity types."
+        system_prompt = "You are a business strategy and internal communication expert. Return pure JSON format. Note that poster_type must exactly match available entity types."
 
         try:
             return self._call_llm_with_retry(prompt, system_prompt)
@@ -833,11 +833,11 @@ Simulation requirement: {simulation_requirement}
 
 ## Task
 Generate activity configuration for each entity. Note:
-- **Follow realistic daily activity patterns**: 0-5 AM almost no activity, 7-10 PM most active
-- **Official institutions** (University/GovernmentAgency): low activity (0.1-0.3), active during work hours (9-17), slow response (60-240 min), high influence (2.5-3.0)
-- **Media** (MediaOutlet): moderate activity (0.4-0.6), active all day (8-23), fast response (5-30 min), high influence (2.0-2.5)
-- **Individuals** (Student/Person/Alumni): high activity (0.6-0.9), mainly active in evening (18-23), fast response (1-15 min), low influence (0.8-1.2)
-- **Public figures/Experts**: moderate activity (0.4-0.6), moderate-high influence (1.5-2.0)
+- **Follow realistic daily activity patterns**: 0-5 AM almost no activity, 9 AM - 5 PM most active (work hours)
+- **Departments & Executives**: low base activity (0.1-0.3), active during work hours (9-17), deliberate response (60-240 min), high influence (2.5-3.0)
+- **Internal Comms & HR**: moderate activity (0.4-0.6), active all day (8-18), fast response (5-30 min), high influence (2.0-2.5)
+- **Individual Employees & Analysts**: high activity (0.6-0.9), mainly active during work block (9-17), fast response (1-15 min), normal influence (0.8-1.2)
+- **Consultants/Specialists**: moderate activity (0.4-0.6), moderate-high influence (1.5-2.0)
 
 Return JSON format (no markdown):
 {{

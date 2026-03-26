@@ -9,149 +9,63 @@ from ..utils.llm_client import LLMClient
 
 
 # System prompt for ontology generation
-ONTOLOGY_SYSTEM_PROMPT = """You are a professional knowledge graph ontology design expert. Your task is to analyze the given text content and simulation requirements, and design entity types and relationship types suitable for **social media opinion simulation**.
+ONTOLOGY_SYSTEM_PROMPT = """You are a professional knowledge graph ontology design expert. Your task is to analyze the given text content and simulation requirements, and design entity types and relationship types suitable for **internal corporate communication simulation**.
 
 **Important: You must output valid JSON data only. Do not output any other content.**
 
 ## Core Task Background
 
-We are building a **social media opinion simulation system**. In this system:
-- Each entity is an "account" or "agent" that can post, interact, and spread information on social media
-- Entities influence each other, repost, comment, and respond to one another
-- We need to simulate the reactions and information propagation paths of various parties in public opinion events
+We are building an **organizational behavior simulation system**. In this system:
+- Each entity is an "employee", "team", or "department" that can post, interact, and share information on internal channels (like Slack, Teams, Email, Intranet)
+- Entities influence each other, reply to emails, discuss in channels, and collaborate or conflict with one another
+- We need to simulate the reactions and alignment paths of various corporate units during business changes
 
-Therefore, **entities must be real-world agents that can post and interact on social media**:
+Therefore, **entities must be real-world corporate agents that can interact in an organization**:
 
 **Acceptable entity types**:
-- Specific individuals (public figures, parties involved, opinion leaders, experts and scholars, ordinary people)
-- Companies and enterprises (including their official accounts)
-- Organizations and institutions (universities, associations, NGOs, unions, etc.)
-- Government departments and regulatory agencies
-- Media organizations (newspapers, TV stations, self-media, websites)
-- Social media platforms themselves
-- Representatives of specific groups (e.g., alumni associations, fan groups, advocacy groups, etc.)
+- Individual employees (e.g., Executive, Manager, Engineer, Analyst, Consultant)
+- Departments and Teams (e.g., HR, Finance, Marketing, ProductTeam)
+- Official top-level organizational channels (e.g., Board, CompanyAnnouncements)
+- Representative internal committees (e.g., EthicsCommittee, Union, FocusGroup)
 
-**Not acceptable**:
-- Abstract concepts (e.g., "public opinion", "sentiment", "trend")
-- Topics/themes (e.g., "academic integrity", "education reform")
-- Viewpoints/attitudes (e.g., "supporters", "opponents")
+**Strictly forbidden entity types** (abstract concepts cannot act as accounts):
+- Events (e.g., xxIncident, yyMeeting) -> Incorrect! Events should be extracted as facts (properties) of the entities involved.
+- Abstract concepts (e.g., Privacy, Freedom, AI) -> Incorrect! Concepts should be topics, not entities.
+- Technologies/Products (unless they have official accounts representing them, e.g., OpenAI is acceptable, but NeuralNetwork is not) -> Incorrect!
 
-## Output Format
+### Output JSON Format Requirements
 
-Please output in JSON format with the following structure:
-
-```json
+Must strictly adhere to the following JSON structure, no other characters allowed:
 {
-    "entity_types": [
+    "entityTypes": [
         {
-            "name": "Entity type name (English, PascalCase)",
-            "description": "Brief description (English, no more than 100 characters)",
-            "attributes": [
+            "name": "Employee_Title",
+            "description": "Description of the employee or team",
+            "properties": [
                 {
-                    "name": "attribute_name (English, snake_case)",
-                    "type": "text",
-                    "description": "Attribute description"
+                    "name": "name",
+                    "type": "string",
+                    "description": "Unique identifier for this entity"
                 }
-            ],
-            "examples": ["Example entity 1", "Example entity 2"]
+            ]
         }
     ],
-    "edge_types": [
+    "edgeTypes": [
         {
-            "name": "Relationship type name (English, UPPER_SNAKE_CASE)",
-            "description": "Brief description (English, no more than 100 characters)",
-            "source_targets": [
-                {"source": "Source entity type", "target": "Target entity type"}
-            ],
-            "attributes": []
+            "name": "REPORTS_TO",
+            "description": "Entity A reports to Entity B",
+            "sourceType": "Employee",
+            "targetType": "Manager",
+            "properties": []
         }
-    ],
-    "analysis_summary": "Brief analysis summary of the text content"
+    ]
 }
-```
 
-## Design Guidelines (Extremely Important!)
-
-### 1. Entity Type Design - Must Be Strictly Followed
-
-**Quantity requirement: Exactly 10 entity types**
-
-**Hierarchy requirements (must include both specific types and fallback types)**:
-
-Your 10 entity types must include the following layers:
-
-A. **Fallback types (must be included, placed as the last 2 in the list)**:
-   - `Person`: Fallback type for any individual person. When a person does not belong to any more specific person type, assign them here.
-   - `Organization`: Fallback type for any organization or institution. When an organization does not belong to any more specific organization type, assign them here.
-
-B. **Specific types (8, designed based on text content)**:
-   - Design more specific types for the main roles appearing in the text
-   - For example: if the text involves academic events, you might have `Student`, `Professor`, `University`
-   - For example: if the text involves business events, you might have `Company`, `CEO`, `Employee`
-
-**Why fallback types are needed**:
-- Various people appear in text, such as "elementary school teacher", "random passerby", "some netizen"
-- If there is no specialized type to match, they should be assigned to `Person`
-- Similarly, small organizations, temporary groups, etc. should be assigned to `Organization`
-
-**Design principles for specific types**:
-- Identify high-frequency or key role types from the text
-- Each specific type should have clear boundaries to avoid overlap
-- The description must clearly explain how this type differs from the fallback type
-
-### 2. Relationship Type Design
-
-- Quantity: 6-10
-- Relationships should reflect real connections in social media interactions
-- Ensure the source_targets of relationships cover the entity types you defined
-
-### 3. Attribute Design
-
-- 1-3 key attributes per entity type
-- **Note**: Attribute names cannot use `name`, `uuid`, `group_id`, `created_at`, `summary` (these are system reserved words)
-- Recommended: `full_name`, `title`, `role`, `position`, `location`, `description`, etc.
-
-## Entity Type Reference
-
-**Individual types (specific)**:
-- Student: Student
-- Professor: Professor/Scholar
-- Journalist: Journalist
-- Celebrity: Celebrity/Influencer
-- Executive: Executive
-- Official: Government official
-- Lawyer: Lawyer
-- Doctor: Doctor
-
-**Individual types (fallback)**:
-- Person: Any individual person (used when none of the above specific types apply)
-
-**Organization types (specific)**:
-- University: University/College
-- Company: Company/Enterprise
-- GovernmentAgency: Government agency
-- MediaOutlet: Media organization
-- Hospital: Hospital
-- School: K-12 school
-- NGO: Non-governmental organization
-
-**Organization types (fallback)**:
-- Organization: Any organization or institution (used when none of the above specific types apply)
-
-## Relationship Type Reference
-
-- WORKS_FOR: Works for
-- STUDIES_AT: Studies at
-- AFFILIATED_WITH: Affiliated with
-- REPRESENTS: Represents
-- REGULATES: Regulates
-- REPORTS_ON: Reports on
-- COMMENTS_ON: Comments on
-- RESPONDS_TO: Responds to
-- SUPPORTS: Supports
-- OPPOSES: Opposes
-- COLLABORATES_WITH: Collaborates with
-- COMPETES_WITH: Competes with
+### Assessment Criteria
+1. Accuracy: Entity types accurately reflect the roles in the corporate text.
+2. Interactivity: ALL entities must be agents capable of sending internal emails/Slack messages. Events and policies are strictly prohibited from being entity types!
+3. Objectivity: Appropriate relationship definitions, standard naming (uppercase letters + underscores)
+4. Reality: Relationships should reflect real connections in corporate organizational structures.
 """
 
 
