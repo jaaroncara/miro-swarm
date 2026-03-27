@@ -142,6 +142,20 @@ class SimulationManager:
         os.makedirs(sim_dir, exist_ok=True)
         return sim_dir
     
+    def delete_simulation(self, simulation_id: str) -> bool:
+        """Delete simulation and all its files"""
+        sim_dir = os.path.join(self.SIMULATION_DATA_DIR, simulation_id)
+        if not os.path.exists(sim_dir):
+            return False
+            
+        shutil.rmtree(sim_dir)
+        
+        # Remove from in-memory cache if present
+        if simulation_id in self._simulations:
+            del self._simulations[simulation_id]
+            
+        return True
+    
     @staticmethod
     def _load_twitter_profiles_csv(profile_path: str) -> List[Dict[str, Any]]:
         """Load Twitter profiles from the OASIS CSV format and normalize them for the app."""

@@ -196,21 +196,37 @@ import { getSimulationHistory } from '../api/simulation'
 
 
 import { deleteProject } from '../api/graph'
+import { deleteSimulation } from '../api/simulation'
 
 // Handle delete project
 const handleDeleteProject = async (project) => {
   if (confirm(`Are you sure you want to delete prediction ${formatSimulationId(project.simulation_id)}?`)) {
     try {
       loading.value = true
-      // We pass the project_id if it exists, otherwise we'd need a delete simulation endpoint.
-      if (project.project_id) {
-         await deleteProject(project.project_id)
+      
+      // Delete simulation first (which is the actual item showing in history)
+      if (project.simulation_id) {
+        try {
+          await deleteSimulation(project.simulation_id)
+        } catch (simErr) {
+          console.warn("Failed to delete simulation or already deleted:", simErr)
+        }
       }
+
+      // Delete the associated project if it exists
+      if (project.project_id) {
+        try {
+          await deleteProject(project.project_id)
+        } catch (projErr) {
+          console.warn("Failed to delete project or already deleted:", projErr)
+        }
+      }
+      
       // Reload logic
       await loadHistory()
     } catch (e) {
       console.error(e)
-      alert("Failed to delete project.")
+      alert("Failed to delete prediction.")
     } finally {
       loading.value = false
     }

@@ -391,6 +391,32 @@ def get_simulation(simulation_id: str):
         }), 500
 
 
+@simulation_bp.route('/<simulation_id>', methods=['DELETE'])
+def delete_simulation(simulation_id: str):
+    """
+    Delete a simulation
+    """
+    try:
+        manager = SimulationManager()
+        success = manager.delete_simulation(simulation_id)
+        
+        if not success:
+            return jsonify({
+                "success": False,
+                "error": f"Simulation not found or deletion failed: {simulation_id}"
+            }), 404
+            
+        return jsonify({
+            "success": True,
+            "message": f"Simulation deleted: {simulation_id}"
+        })
+    except Exception as e:
+        logger.error(f"Failed to delete simulation: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": f"Internal server error: {str(e)}"
+        }), 500
+
 @simulation_bp.route('/list', methods=['GET'])
 def list_simulations():
     """
