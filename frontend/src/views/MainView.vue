@@ -219,8 +219,9 @@ const handleNewProject = async () => {
       addLog(`Error generating ontology: ${error.value}`)
     }
   } catch (err) {
-    error.value = err.message
-    addLog(`Exception in handleNewProject: ${err.message}`)
+    const errorMsg = err.response?.data?.error || err.message;
+    error.value = errorMsg;
+    addLog(`Exception in handleNewProject: ${errorMsg}`);
   } finally {
     loading.value = false
   }

@@ -6,6 +6,9 @@ Interface 1: Analyze text content and generate entity and relationship type defi
 import json
 from typing import Dict, Any, List, Optional
 from ..utils.llm_client import LLMClient
+from ..utils.logger import get_logger
+
+logger = get_logger('mirofish.ontology_generator')
 
 
 # System prompt for ontology generation
@@ -114,8 +117,13 @@ class OntologyGenerator:
             max_tokens=4096
         )
 
+        logger.info(f"Raw LLM ontology keys: {list(result.keys())}")
+
         # Validate and post-process
         result = self._validate_and_process(result)
+
+        logger.info(f"Final ontology: {len(result.get('entity_types', []))} entity_types, "
+                    f"{len(result.get('edge_types', []))} edge_types")
 
         return result
 
@@ -170,6 +178,33 @@ Based on the above content, design entity types and relationship types suitable 
 
     def _validate_and_process(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Validate and post-process results"""
+
+        # ---- Normalize camelCase keys from LLM to snake_case ----
+        # The prompt asks for "entityTypes"/"edgeTypes" but internal code uses "entity_types"/"edge_types".
+        camel_to_snake = {
+            "entityTypes": "entity_types",
+            "edgeTypes": "edge_types",
+            "analysisSummary": "analysis_summary",
+        }
+        for camel, snake in camel_to_snake.items():
+            if camel in result and snake not in result:
+                result[snake] = result.pop(camel)
+
+        # Normalize nested keys inside edge_types: sourceType/targetType → source_targets
+        for edge in result.get("edge_types", []):
+            if "source_targets" not in edge and ("sourceType" in edge or "targetType" in edge):
+                edge["source_targets"] = [{
+                    "source": edge.pop("sourceType", ""),
+                    "target": edge.pop("targetType", ""),
+                }]
+            # Also normalize "properties" → "attributes" if the LLM used "properties"
+            if "attributes" not in edge and "properties" in edge:
+                edge["attributes"] = edge.pop("properties")
+
+        # Normalize nested keys inside entity_types: "properties" → "attributes"
+        for entity in result.get("entity_types", []):
+            if "attributes" not in entity and "properties" in entity:
+                entity["attributes"] = entity.pop("properties")
 
         # Ensure required fields exist
         if "entity_types" not in result:
@@ -249,12 +284,22 @@ Based on the above content, design entity types and relationship types suitable 
             # Add fallback types
             result["entity_types"].extend(fallbacks_to_add)
 
+        # Ensure a general-purpose RELATED_TO edge type always exists as fallback
+        edge_names = {e["name"] for e in result["edge_types"]}
+        if "RELATED_TO" not in edge_names:
+            result["edge_types"].append({
+                "name": "RELATED_TO",
+                "description": "General relationship between any two entities",
+                "source_targets": [{"source": "*", "target": "*"}],
+                "attributes": [],
+            })
+
         # Final check to ensure limits are not exceeded (defensive programming)
         if len(result["entity_types"]) > MAX_ENTITY_TYPES:
             result["entity_types"] = result["entity_types"][:MAX_ENTITY_TYPES]
 
-        if len(result["edge_types"]) > MAX_EDGE_TYPES:
-            result["edge_types"] = result["edge_types"][:MAX_EDGE_TYPES]
+        if len(result["edge_types"]) > MAX_EDGE_TYPES + 1:  # +1 for RELATED_TO fallback
+            result["edge_types"] = result["edge_types"][:MAX_EDGE_TYPES + 1]
 
         return result
 

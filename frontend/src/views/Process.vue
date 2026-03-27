@@ -612,7 +612,8 @@ const handleNewProject = async () => {
     }
   } catch (err) {
     console.error('Handle new project error:', err)
-    error.value = 'Project initialization failed: ' + (err.message || 'Unknown error')
+    const errorMsg = err.response?.data?.error || err.message || 'Unknown error'
+    error.value = 'Project initialization failed: ' + errorMsg
   } finally {
     loading.value = false
   }

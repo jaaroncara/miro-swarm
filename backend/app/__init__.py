@@ -13,7 +13,7 @@ from flask import Flask, request, send_from_directory
 from flask_cors import CORS
 
 from .config import Config
-from .services.graph_storage import JSONStorage, KuzuDBStorage
+from .services.graph_storage import JSONStorage, KuzuDBStorage, get_cached_kuzu_storage
 from .utils.logger import setup_logger, get_logger
 
 
@@ -48,7 +48,7 @@ def create_app(config_class=Config):
     if storage_backend == "json":
         app.extensions["graph_storage"] = JSONStorage(data_dir=app.config["DATA_DIR"])
     else:
-        app.extensions["graph_storage"] = KuzuDBStorage(db_path=app.config["KUZU_DB_PATH"])
+        app.extensions["graph_storage"] = get_cached_kuzu_storage(app.config["KUZU_DB_PATH"])
     
     # Register simulation process cleanup (ensure all simulation processes are terminated on server shutdown)
     from .services.simulation_runner import SimulationRunner

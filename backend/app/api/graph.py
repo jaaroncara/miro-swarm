@@ -155,6 +155,8 @@ def generate_ontology():
         })
 
     except ValueError as e:
+        logger.error(f"ValueError in generate_ontology: {str(e)}")
+
         return jsonify({
             "success": False,
             "error": str(e)
@@ -205,6 +207,8 @@ def build_graph():
         }), 404
 
     except ValueError as e:
+        logger.error(f"ValueError in generate_ontology: {str(e)}")
+
         return jsonify({
             "success": False,
             "error": str(e)
@@ -295,6 +299,10 @@ def get_graph_data(graph_id: str):
         builder = GraphBuilderService()
         graph_data = builder.get_graph_data(graph_id)
         
+        node_count = graph_data.get("node_count", 0)
+        edge_count = graph_data.get("edge_count", 0)
+        logger.info(f"GET /data/{graph_id}: returning {node_count} nodes, {edge_count} edges")
+
         return jsonify({
             "success": True,
             "data": graph_data

@@ -97,7 +97,7 @@ class LLMClient:
     def chat(
         self,
         messages: List[Dict[str, str]],
-        temperature: float = 0.7,
+        temperature: float = 1.0,
         max_tokens: int = 4096,
         response_format: Optional[Dict] = None
     ) -> str:
@@ -133,8 +133,8 @@ class LLMClient:
         kwargs = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+            "temperature": 1.0,
+            "max_completion_tokens": max_tokens,
         }
 
         if response_format:
@@ -284,7 +284,7 @@ class LLMClient:
     def chat_json(
         self,
         messages: List[Dict[str, str]],
-        temperature: float = 0.3,
+        temperature: float = 1.0,
         max_tokens: int = 4096
     ) -> Dict[str, Any]:
         """
@@ -304,13 +304,30 @@ class LLMClient:
             max_tokens=max_tokens,
             response_format={"type": "json_object"}
         )
-        # Clean markdown code block markers
+        # Find actual JSON boundaries
         cleaned_response = response.strip()
-        cleaned_response = re.sub(r'^```(?:json)?\s*\n?', '', cleaned_response, flags=re.IGNORECASE)
-        cleaned_response = re.sub(r'\n?```\s*$', '', cleaned_response)
-        cleaned_response = cleaned_response.strip()
+        
+        # Strip codeblock markers manually if they exist anywhere
+        if "```" in cleaned_response:
+            match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', cleaned_response, re.IGNORECASE)
+            if match:
+                cleaned_response = match.group(1).strip()
+                
+        # Failsafe: find the brackets
+        start_idx = cleaned_response.find('{')
+        if start_idx == -1:
+            start_idx = cleaned_response.find('[')
+            
+        if start_idx != -1:
+            end_dict = cleaned_response.rfind('}')
+            end_list = cleaned_response.rfind(']')
+            end_idx = max(end_dict, end_list)
+            if end_idx > start_idx:
+                cleaned_response = cleaned_response[start_idx:end_idx+1]
 
         try:
             return json.loads(cleaned_response)
-        except json.JSONDecodeError:
-            raise ValueError(f"Invalid JSON returned by LLM: {cleaned_response[:500]}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON. Cleaned snippet: {cleaned_response[:200]}")
+            logger.error(f"Raw format: {repr(response)}")
+            raise ValueError(f"Invalid JSON returned by LLM (Error at index {e.pos}):\n{cleaned_response[:500]}\n...")

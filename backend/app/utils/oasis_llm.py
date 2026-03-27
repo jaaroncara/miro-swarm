@@ -181,7 +181,7 @@ class CLIModel(OpenAIModel):
         if tools:
             logger.warning('CLIModel ignores tool schemas; tool calling is not supported in OASIS CLI mode')
 
-        temperature = float((self.model_config_dict or {}).get('temperature', 0.7) or 0.7)
+        temperature = float((self.model_config_dict or {}).get('temperature', 1.0) or 1.0)
         max_tokens = int((self.model_config_dict or {}).get('max_tokens', 4096) or 4096)
         content = self._llm.chat(
             messages=messages,
@@ -206,7 +206,7 @@ class CLIModel(OpenAIModel):
         if tools:
             logger.warning('CLIModel ignores tool schemas during structured output requests')
 
-        temperature = float((self.model_config_dict or {}).get('temperature', 0.3) or 0.3)
+        temperature = float((self.model_config_dict or {}).get('temperature', 1.0) or 1.0)
         max_tokens = int((self.model_config_dict or {}).get('max_tokens', 4096) or 4096)
         payload = self._llm.chat_json(
             messages=messages,
@@ -255,7 +255,7 @@ def create_oasis_model(config: Dict[str, Any], use_boost: bool = False):
     return ModelFactory.create(
         model_platform=ModelPlatformType.OPENAI,
         model_type=resolved.model,
-        model_config_dict={},
+        model_config_dict={"temperature": 1.0},
         api_key=resolved.api_key,
         url=resolved.base_url or None,
     )

@@ -16,13 +16,13 @@ logger = get_logger('mirofish.entity_extractor')
 EXTRACTION_SYSTEM_PROMPT = """You are a knowledge graph entity extraction expert. Your task is to extract entities and relationships from text based on a given ontology schema.
 
 ## Rules
-1. Extract ONLY entities whose types match the provided entity types
-2. Extract ONLY relationships whose types match the provided relationship types
-3. Entity names should be proper nouns or specific identifiers found in the text
-4. Each relationship must reference entities that exist in your extraction
-5. Be thorough but precise - extract all relevant entities and relationships mentioned in the text
-6. For each entity, provide a brief summary based on context in the text
-7. For each relationship, provide a fact statement describing the relationship
+1. Extract entities whose types match the provided entity types. If an entity does not match a specific type, use "Person" or "Organization" as a fallback.
+2. Prefer relationship types from the provided schema. If a clear relationship exists between two entities but does not fit any provided type, use "RELATED_TO" as a general fallback.
+3. Entity names should be proper nouns or specific identifiers found in the text.
+4. Each relationship must reference entities that exist in your extraction.
+5. Be thorough - extract ALL entities and relationships mentioned or implied in the text. It is better to extract a relationship with "RELATED_TO" than to miss it.
+6. For each entity, provide a brief summary based on context in the text.
+7. For each relationship, provide a fact statement describing the relationship.
 
 ## Output Format
 Return valid JSON with this exact structure:
@@ -117,7 +117,7 @@ Extract all entities and relationships from the text above that match the ontolo
             entities = result.get("entities", [])
             relationships = result.get("relationships", [])
 
-            logger.debug(f"Extracted {len(entities)} entities, {len(relationships)} relationships")
+            logger.info(f"Extracted {len(entities)} entities, {len(relationships)} relationships from chunk")
             return {"entities": entities, "relationships": relationships}
 
         except Exception as e:

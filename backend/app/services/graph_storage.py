@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Iterable, Optional
 
@@ -20,6 +21,29 @@ except ImportError:  # pragma: no cover - dependency availability is environment
 
 
 logger = get_logger("mirofish.graph_storage")
+
+# ---- Module-level KuzuDBStorage cache ----
+# KuzuDB only supports a single kuzu.Database per directory path.
+# This cache ensures we reuse instances across threads and requests.
+_kuzu_cache: Dict[str, "KuzuDBStorage"] = {}
+_kuzu_cache_lock = threading.Lock()
+
+
+def get_cached_kuzu_storage(db_path: str) -> "KuzuDBStorage":
+    """Return a cached KuzuDBStorage for the given path, creating one if needed."""
+    abs_path = os.path.abspath(db_path)
+    with _kuzu_cache_lock:
+        if abs_path in _kuzu_cache:
+            return _kuzu_cache[abs_path]
+    # Create outside lock to avoid holding it during slow I/O
+    storage = KuzuDBStorage.__new__(KuzuDBStorage)
+    storage._init_from_cache(abs_path)
+    with _kuzu_cache_lock:
+        # Double-check: another thread may have created it while we were init'ing
+        if abs_path in _kuzu_cache:
+            return _kuzu_cache[abs_path]
+        _kuzu_cache[abs_path] = storage
+    return storage
 
 
 class StorageError(RuntimeError):
@@ -180,6 +204,11 @@ class KuzuDBStorage(GraphStorage):
     """Embedded KuzuDB-backed graph storage."""
 
     def __init__(self, db_path: str):
+        """Use get_cached_kuzu_storage() instead of calling this directly."""
+        self._init_from_cache(os.path.abspath(db_path))
+
+    def _init_from_cache(self, abs_db_path: str):
+        """Internal initializer for both __init__ and cache factory."""
         if kuzu is None:
             message = (
                 "Failed to initialize KuzuDB storage: kuzu package is not installed. "
@@ -188,7 +217,7 @@ class KuzuDBStorage(GraphStorage):
             logger.error(message)
             raise RuntimeError(message)
 
-        self.db_path = db_path
+        self.db_path = abs_db_path
         self._database_path = os.path.join(self.db_path, "graph.kuzu")
         os.makedirs(self.db_path, exist_ok=True)
         try:
@@ -682,6 +711,10 @@ class KuzuDBStorage(GraphStorage):
             return value
 
     def close(self) -> None:
+        if self._connection:
+            self._connection.close()
+        if self._database:
+            self._database.close()
         self._connection = None
         self._database = None
 
@@ -945,7 +978,7 @@ def get_app_graph_storage(graph_id: Optional[str] = None) -> Optional[GraphStora
         return storage
 
     if isinstance(storage, KuzuDBStorage):
-        return KuzuDBStorage(os.path.join(storage.db_path, graph_id))
+        return get_cached_kuzu_storage(os.path.join(storage.db_path, graph_id))
     if isinstance(storage, JSONStorage):
         return JSONStorage(os.path.join(storage.data_dir, graph_id))
     return storage

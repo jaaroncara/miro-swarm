@@ -5,7 +5,7 @@
       <div class="nav-brand">SWARM ANALYTICS</div>
       <div class="nav-links">
         <a href="https://github.com/jaaroncara" target="_blank" class="github-link">
-          Visit our Github page <span class="arrow">↗</span>
+          Inspired by MiroFish <span class="arrow">↗</span>
         </a>
       </div>
     </nav>
@@ -15,36 +15,21 @@
       <section class=”hero-section”>
         <div class=”hero-left”>
           <div class=”tag-row”>
-            <span class=”orange-tag”>A Simple & Universal Swarm Intelligence Engine</span>
-            <span class=”version-text”>/ v0.1-Preview</span>
+            <span class=”orange-tag”>A Universal AI Business Intelligence Engine</span>
+            <span class=”version-text”> / v1</span>
           </div>
 
           <h1 class=”main-title”>
-            Upload Any Report<br>
-            <span class=”gradient-text”>Predict Business Actions</span>
-          </h1>
+            Upload Any Report — <span class=”gradient-text”>Predict Business Outcomes</span>
+          </h1> <br>
 
           <div class=”hero-desc”>
             <p>
-              Even with just a single piece of text, <span class=”highlight-bold”>Swarm Analytics</span> can extract reality seeds from it and automatically generate a parallel world composed of up to <span class=”highlight-orange”>millions of Agents</span>. Inject variables from a god's-eye view and find <span class=”highlight-code”>”local optima”</span> in dynamic environments through complex swarm interactions.
-            </p>
-            <p class=”slogan-text”>
-              Let the future rehearse among Agents, let decisions prevail after countless trials<span class=”blinking-cursor”>_</span>
+              Upload any business report, <span class=”highlight-bold”>Swarm Analytics</span> generates a parallel world composed of up to <span class=”highlight-orange”>millions of Agents</span> based on a graphRAG model of your data. Then, ask questions and find <span class=”highlight-code”>”local optima”</span> in dynamic environments through complex swarm interactions.
             </p>
           </div>
            
           <div class="decoration-square"></div>
-        </div>
-        
-        <div class="hero-right">
-          <!-- Logo Area -->
-          <div class="logo-container">
-            <img src="../assets/logo/swarm-analytics-logo.png" alt="Swarm Analytics Logo" class="hero-logo" />
-          </div>
-          
-          <button class="scroll-down-btn" @click="scrollToBottom">
-            ↓
-          </button>
         </div>
       </section>
 
@@ -60,18 +45,6 @@
           <p class="section-desc">
             Prediction engine on standby. Upload multiple unstructured data files to initialize the simulation sequence.
           </p>
-
-          <!-- Data Metric Cards -->
-          <div class="metrics-row">
-            <div class="metric-card">
-              <div class="metric-value">Low Cost</div>
-              <div class="metric-label">Avg. $5 per standard simulation</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-value">High Availability</div>
-              <div class="metric-label">Up to millions of Agent simulations</div>
-            </div>
-          </div>
 
           <!-- Simulation Workflow Steps -->
           <div class="steps-container">
@@ -124,7 +97,7 @@
             <!-- Upload Area -->
             <div class="console-section">
               <div class="console-header">
-                <span class="console-label">01 / Reality Seeds</span>
+                <span class="console-label">01 / Business Reports</span>
                 <span class="console-meta">Supported formats: PDF, MD, TXT</span>
               </div>
               
@@ -176,11 +149,10 @@
                 <textarea
                   v-model="formData.simulationRequirement"
                   class="code-input"
-                  placeholder="// Enter simulation or prediction requirements in natural language (e.g. If a university announces the reversal of a disciplinary action, what public opinion trends would emerge?)"
+                  placeholder="// Describe simulation requirements (e.g. If adidas launches a new sales promotion, how should the brand marketing strategy adapt?)"
                   rows="6"
                   :disabled="loading"
                 ></textarea>
-                <div class="model-badge">Engine: MiroFish-V1.0</div>
               </div>
             </div>
 
@@ -191,7 +163,7 @@
                 @click="startSimulation"
                 :disabled="!canSubmit || loading"
               >
-                <span v-if="!loading">Launch Engine</span>
+                <span v-if="!loading">Launch Simulation</span>
                 <span v-else>Initializing...</span>
                 <span class="btn-arrow">→</span>
               </button>
@@ -853,8 +825,8 @@ const startSimulation = () => {
 }
 
 .start-engine-btn:disabled {
-  background: #E5E5E5;
-  color: #999;
+  background: #ffa4a4;
+  color: #ffffff;
   cursor: not-allowed;
   transform: none;
   border: 1px solid #E5E5E5;

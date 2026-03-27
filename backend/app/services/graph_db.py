@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .graph_storage import GraphStorage, JSONStorage, KuzuDBStorage, get_app_graph_storage
+from .graph_storage import GraphStorage, JSONStorage, KuzuDBStorage, get_app_graph_storage, get_cached_kuzu_storage
 from ..config import Config
 from ..utils.logger import get_logger
 
@@ -137,7 +137,7 @@ class GraphDatabase:
             raise FileNotFoundError(f"Graph database not found: {graph_id}")
         if self.storage_backend == "json":
             return JSONStorage(graph_dir)
-        return KuzuDBStorage(graph_dir)
+        return get_cached_kuzu_storage(graph_dir)
 
     def get_storage(self, graph_id: str, create: bool = False) -> GraphStorage:
         """Return the storage backend for a specific graph."""
