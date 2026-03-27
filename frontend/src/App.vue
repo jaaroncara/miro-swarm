@@ -39,7 +39,7 @@
 }
 
 #app {
-  font-family: 'JetBrains Mono', 'Space Grotesk', 'Noto Sans SC', monospace;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--text-primary);

@@ -291,7 +291,7 @@ const startSimulation = () => {
     Make sure these Google Fonts are imported in index.html
   */
   --font-mono: 'JetBrains Mono', monospace;
-  --font-sans: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
   --font-cn: 'Noto Sans SC', system-ui, sans-serif;
 }
 

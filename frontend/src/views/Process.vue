@@ -1094,12 +1094,12 @@ onUnmounted(() => {
 <style scoped>
 /* Variables */
 :root {
-  --black: #000000;
-  --white: #FFFFFF;
+  --black: var(--text-primary);
+  --white: var(--bg-primary);
   --orange: #FF6B35;
-  --gray-light: #F5F5F5;
-  --gray-border: #E0E0E0;
-  --gray-text: #666666;
+  --gray-light: var(--bg-secondary);
+  --gray-border: var(--border-color);
+  --gray-text: var(--text-secondary);
 }
 
 .process-page {
@@ -1192,7 +1192,7 @@ onUnmounted(() => {
 
 .status-text {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-muted);
 }
 
 /* Main content area */
@@ -1210,7 +1210,7 @@ onUnmounted(() => {
   flex-direction: column;
   border-right: 1px solid #E0E0E0;
   transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  background: #fff;
+  background: var(--bg-primary);
   z-index: 5;
 }
 
@@ -1225,7 +1225,7 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 12px 24px;
   border-bottom: 1px solid #E0E0E0;
-  background: #fff;
+  background: var(--bg-primary);
   height: 50px;
 }
 
@@ -1251,7 +1251,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 16px;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .stat-item {
@@ -1285,13 +1285,13 @@ onUnmounted(() => {
   border: 1px solid transparent;
   cursor: pointer;
   transition: all 0.2s;
-  color: #666;
+  color: var(--text-secondary);
   border-radius: 2px;
 }
 
 .action-btn:hover:not(:disabled) {
-  background: #F5F5F5;
-  color: #000;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .action-btn:disabled {
@@ -1346,7 +1346,7 @@ onUnmounted(() => {
 .loading-ring:nth-child(1) {
   width: 80px;
   height: 80px;
-  border-top-color: #000;
+  border-top-color: var(--text-primary);
 }
 
 .loading-ring:nth-child(2) {
@@ -1363,7 +1363,7 @@ onUnmounted(() => {
   height: 40px;
   top: 20px;
   left: 20px;
-  border-bottom-color: #666;
+  border-bottom-color: var(--text-secondary);
   animation-delay: 0.4s;
 }
 
@@ -1380,7 +1380,7 @@ onUnmounted(() => {
 
 .waiting-hint {
   font-size: 0.8rem;
-  color: #999;
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -1435,7 +1435,7 @@ onUnmounted(() => {
   right: 16px;
   width: 320px;
   max-height: calc(100% - 32px);
-  background: #fff;
+  background: var(--bg-primary);
   border: 1px solid #E0E0E0;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
   overflow: hidden;
@@ -1449,7 +1449,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  background: #FAFAFA;
+  background: var(--bg-secondary);
   border-bottom: 1px solid #E0E0E0;
 }
 
@@ -1476,7 +1476,7 @@ onUnmounted(() => {
   background: none;
   border: none;
   font-size: 1.2rem;
-  color: #999;
+  color: var(--text-muted);
   cursor: pointer;
   transition: color 0.2s;
 }
@@ -1499,7 +1499,7 @@ onUnmounted(() => {
 
 .detail-label {
   font-size: 0.8rem;
-  color: #999;
+  color: var(--text-muted);
   min-width: 70px;
   flex-shrink: 0;
 }
@@ -1513,7 +1513,7 @@ onUnmounted(() => {
 .detail-value.uuid {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .detail-section {
@@ -1526,7 +1526,7 @@ onUnmounted(() => {
   color: #333;
   line-height: 1.6;
   padding: 10px;
-  background: #F9F9F9;
+  background: var(--bg-secondary);
   border-left: 3px solid #FF6B35;
 }
 
@@ -1539,9 +1539,9 @@ onUnmounted(() => {
 .label-tag {
   padding: 2px 8px;
   font-size: 0.75rem;
-  background: #F0F0F0;
+  background: var(--border-color);
   border: 1px solid #E0E0E0;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 /* Edge detail relationship display */
@@ -1552,7 +1552,7 @@ onUnmounted(() => {
   gap: 8px;
   margin-bottom: 16px;
   padding: 12px;
-  background: #F9F9F9;
+  background: var(--bg-secondary);
   border: 1px solid #E0E0E0;
 }
 
@@ -1564,7 +1564,7 @@ onUnmounted(() => {
 }
 
 .edge-arrow {
-  color: #999;
+  color: var(--text-muted);
 }
 
 .edge-type {
@@ -1576,7 +1576,7 @@ onUnmounted(() => {
 
 .detail-value.highlight {
   font-weight: 600;
-  color: #000;
+  color: var(--text-primary);
 }
 
 .detail-subtitle {
@@ -1592,7 +1592,7 @@ onUnmounted(() => {
 .properties-list {
   margin-top: 8px;
   padding: 10px;
-  background: #F9F9F9;
+  background: var(--bg-secondary);
   border: 1px solid #E0E0E0;
 }
 
@@ -1607,7 +1607,7 @@ onUnmounted(() => {
 }
 
 .property-key {
-  color: #666;
+  color: var(--text-secondary);
   margin-right: 8px;
   font-family: 'JetBrains Mono', monospace;
 }
@@ -1630,9 +1630,9 @@ onUnmounted(() => {
   padding: 6px 10px;
   font-size: 0.75rem;
   font-family: 'JetBrains Mono', monospace;
-  background: #F0F0F0;
+  background: var(--border-color);
   border: 1px solid #E0E0E0;
-  color: #666;
+  color: var(--text-secondary);
   word-break: break-all;
 }
 
@@ -1649,7 +1649,7 @@ onUnmounted(() => {
   gap: 16px;
   padding: 12px 24px;
   border-top: 1px solid #E0E0E0;
-  background: #FAFAFA;
+  background: var(--bg-secondary);
 }
 
 .legend-item {
@@ -1670,7 +1670,7 @@ onUnmounted(() => {
 }
 
 .legend-count {
-  color: #999;
+  color: var(--text-muted);
 }
 
 /* Right panel - 50% default */
@@ -1679,7 +1679,7 @@ onUnmounted(() => {
   flex: none;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--bg-primary);
   transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, transform 0.3s ease;
   overflow: hidden;
   opacity: 1;
@@ -1736,7 +1736,7 @@ onUnmounted(() => {
   align-items: flex-start;
   gap: 16px;
   padding: 16px;
-  background: #FAFAFA;
+  background: var(--bg-secondary);
   border-bottom: 1px solid #E0E0E0;
 }
 
@@ -1775,7 +1775,7 @@ onUnmounted(() => {
 
 .phase-api {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -1783,7 +1783,7 @@ onUnmounted(() => {
   font-size: 0.75rem;
   padding: 4px 10px;
   background: #eee;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .phase-status.active {
@@ -1811,7 +1811,7 @@ onUnmounted(() => {
 .entity-tag {
   font-size: 0.75rem;
   padding: 4px 10px;
-  background: #F5F5F5;
+  background: var(--bg-secondary);
   border: 1px solid #E0E0E0;
   color: #333;
 }
@@ -1849,7 +1849,7 @@ onUnmounted(() => {
 
 .relation-more {
   padding-top: 8px;
-  color: #999;
+  color: var(--text-muted);
   font-size: 0.75rem;
 }
 
@@ -1880,14 +1880,14 @@ onUnmounted(() => {
 /* Waiting state */
 .waiting-state {
   padding: 16px;
-  background: #F9F9F9;
+  background: var(--bg-secondary);
   border: 1px dashed #E0E0E0;
   text-align: center;
 }
 
 .waiting-hint {
   font-size: 0.85rem;
-  color: #999;
+  color: var(--text-muted);
 }
 
 /* Progress bar */
@@ -1911,7 +1911,7 @@ onUnmounted(() => {
 }
 
 .progress-message {
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .progress-percent {
@@ -1929,20 +1929,20 @@ onUnmounted(() => {
   flex: 1;
   text-align: center;
   padding: 12px;
-  background: #F5F5F5;
+  background: var(--bg-secondary);
 }
 
 .result-value {
   display: block;
   font-size: 1.5rem;
   font-weight: 700;
-  color: #000;
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
 .result-label {
   font-size: 0.7rem;
-  color: #999;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -1987,7 +1987,7 @@ onUnmounted(() => {
 /* Project info panel */
 .project-panel {
   border-top: 1px solid #E0E0E0;
-  background: #FAFAFA;
+  background: var(--bg-secondary);
 }
 
 .project-header {
@@ -2025,7 +2025,7 @@ onUnmounted(() => {
 }
 
 .item-label {
-  color: #999;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -2039,7 +2039,7 @@ onUnmounted(() => {
 .item-value.code {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 /* Responsive */

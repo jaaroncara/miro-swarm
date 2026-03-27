@@ -958,7 +958,7 @@ onUnmounted(() => {
   left: 0;
   height: 2px;
   width: 0;
-  background-color: #000;
+  background-color: var(--text-primary);
   transition: width 0.5s cubic-bezier(0.23, 1, 0.32, 1);
   z-index: 20;
 }

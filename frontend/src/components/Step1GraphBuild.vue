@@ -273,7 +273,7 @@ watch(() => props.systemLogs.length, () => {
 <style scoped>
 .workbench-panel {
   height: 100%;
-  background-color: #FAFAFA;
+  background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -290,17 +290,17 @@ watch(() => props.systemLogs.length, () => {
 }
 
 .step-card {
-  background: #FFF;
+  background: var(--bg-primary);
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-  border: 1px solid #EAEAEA;
+  border: 1px solid var(--border-color);
   transition: all 0.3s ease;
   position: relative; /* For absolute overlay */
 }
 
 .step-card.active {
-  border-color: #FF5722;
+  border-color: #FF8A65;
   box-shadow: 0 4px 12px rgba(255, 87, 34, 0.08);
 }
 
@@ -326,7 +326,7 @@ watch(() => props.systemLogs.length, () => {
 
 .step-card.active .step-num,
 .step-card.completed .step-num {
-  color: #000;
+  color: var(--text-primary);
 }
 
 .step-title {
@@ -343,21 +343,21 @@ watch(() => props.systemLogs.length, () => {
   text-transform: uppercase;
 }
 
-.badge.success { background: #E8F5E9; color: #2E7D32; }
-.badge.processing { background: #FF5722; color: #FFF; }
-.badge.accent { background: #FF5722; color: #FFF; }
-.badge.pending { background: #F5F5F5; color: #999; }
+.badge.success { background: rgba(34, 197, 94, 0.1); color: #4ADE80; }
+.badge.processing { background: #FF5722; color: var(--text-primary); }
+.badge.accent { background: #FF5722; color: var(--text-primary); }
+.badge.pending { background: var(--bg-secondary); color: var(--text-muted); }
 
 .api-note {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: #999;
+  color: var(--text-muted);
   margin-bottom: 8px;
 }
 
 .description {
   font-size: 12px;
-  color: #666;
+  color: var(--text-secondary);
   line-height: 1.5;
   margin-bottom: 16px;
 }
@@ -376,7 +376,7 @@ watch(() => props.systemLogs.length, () => {
 .tag-label {
   display: block;
   font-size: 10px;
-  color: #AAA;
+  color: var(--text-secondary);
   margin-bottom: 8px;
   font-weight: 600;
 }
@@ -388,12 +388,12 @@ watch(() => props.systemLogs.length, () => {
 }
 
 .entity-tag {
-  background: #F5F5F5;
-  border: 1px solid #EEE;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   padding: 4px 10px;
   border-radius: 4px;
   font-size: 11px;
-  color: #333;
+  color: var(--text-primary);
   font-family: 'JetBrains Mono', monospace;
   transition: all 0.2s;
 }
@@ -403,8 +403,8 @@ watch(() => props.systemLogs.length, () => {
 }
 
 .entity-tag.clickable:hover {
-    background: #E0E0E0;
-    border-color: #CCC;
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
 }
 
 /* Ontology Detail Overlay */
@@ -417,7 +417,7 @@ watch(() => props.systemLogs.length, () => {
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(4px);
     z-index: 10;
-    border: 1px solid #EAEAEA;
+    border: 1px solid var(--border-color);
     box-shadow: 0 4px 20px rgba(0,0,0,0.05);
     border-radius: 6px;
     display: flex;
@@ -433,8 +433,8 @@ watch(() => props.systemLogs.length, () => {
     justify-content: space-between;
     align-items: center;
     padding: 12px 16px;
-    border-bottom: 1px solid #EAEAEA;
-    background: #FAFAFA;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
 }
 
 .detail-title-group {
@@ -446,8 +446,8 @@ watch(() => props.systemLogs.length, () => {
 .detail-type-badge {
     font-size: 9px;
     font-weight: 700;
-    color: #FFF;
-    background: #000;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 2px;
     text-transform: uppercase;
@@ -463,13 +463,13 @@ watch(() => props.systemLogs.length, () => {
     background: none;
     border: none;
     font-size: 18px;
-    color: #999;
+    color: var(--text-muted);
     cursor: pointer;
     line-height: 1;
 }
 
 .close-btn:hover {
-    color: #333;
+    color: var(--text-primary);
 }
 
 .detail-body {
@@ -480,11 +480,11 @@ watch(() => props.systemLogs.length, () => {
 
 .detail-desc {
     font-size: 12px;
-    color: #444;
+    color: var(--text-primary);
     line-height: 1.5;
     margin-bottom: 16px;
     padding-bottom: 12px;
-    border-bottom: 1px dashed #EAEAEA;
+    border-bottom: 1px dashed var(--border-color);
 }
 
 .detail-section {
@@ -495,7 +495,7 @@ watch(() => props.systemLogs.length, () => {
     display: block;
     font-size: 10px;
     font-weight: 600;
-    color: #AAA;
+    color: var(--text-secondary);
     margin-bottom: 8px;
 }
 
@@ -512,23 +512,23 @@ watch(() => props.systemLogs.length, () => {
     gap: 6px;
     align-items: baseline;
     padding: 4px;
-    background: #F9F9F9;
+    background: var(--bg-secondary);
     border-radius: 4px;
 }
 
 .attr-name {
     font-family: 'JetBrains Mono', monospace;
     font-weight: 600;
-    color: #000;
+    color: var(--text-primary);
 }
 
 .attr-type {
-    color: #999;
+    color: var(--text-muted);
     font-size: 10px;
 }
 
 .attr-desc {
-    color: #555;
+    color: var(--text-primary);
     flex: 1;
     min-width: 150px;
 }
@@ -541,11 +541,11 @@ watch(() => props.systemLogs.length, () => {
 
 .example-tag {
     font-size: 11px;
-    background: #FFF;
-    border: 1px solid #E0E0E0;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     padding: 3px 8px;
     border-radius: 12px;
-    color: #555;
+    color: var(--text-primary);
 }
 
 .conn-item {
@@ -554,18 +554,18 @@ watch(() => props.systemLogs.length, () => {
     gap: 8px;
     font-size: 11px;
     padding: 6px;
-    background: #F5F5F5;
+    background: var(--bg-secondary);
     border-radius: 4px;
     font-family: 'JetBrains Mono', monospace;
 }
 
 .conn-node {
     font-weight: 600;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .conn-arrow {
-    color: #BBB;
+    color: var(--text-secondary);
 }
 
 /* Step 02 Stats */
@@ -573,7 +573,7 @@ watch(() => props.systemLogs.length, () => {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 12px;
-  background: #F9F9F9;
+  background: var(--bg-secondary);
   padding: 16px;
   border-radius: 6px;
 }
@@ -586,13 +586,13 @@ watch(() => props.systemLogs.length, () => {
   display: block;
   font-size: 20px;
   font-weight: 700;
-  color: #000;
+  color: var(--text-primary);
   font-family: 'JetBrains Mono', monospace;
 }
 
 .stat-label {
   font-size: 9px;
-  color: #999;
+  color: var(--text-muted);
   text-transform: uppercase;
   margin-top: 4px;
   display: block;
@@ -601,8 +601,8 @@ watch(() => props.systemLogs.length, () => {
 /* Step 03 Button */
 .action-btn {
   width: 100%;
-  background: #000;
-  color: #FFF;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
   border: none;
   padding: 14px;
   border-radius: 4px;
@@ -617,7 +617,7 @@ watch(() => props.systemLogs.length, () => {
 }
 
 .action-btn:disabled {
-  background: #CCC;
+  background: var(--bg-tertiary);
   cursor: not-allowed;
 }
 
@@ -626,7 +626,7 @@ watch(() => props.systemLogs.length, () => {
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: #FF5722;
+  color: #FF8A65;
   margin-bottom: 12px;
 }
 
@@ -634,7 +634,7 @@ watch(() => props.systemLogs.length, () => {
   width: 14px;
   height: 14px;
   border: 2px solid #FFCCBC;
-  border-top-color: #FF5722;
+  border-top-color: #FF8A65;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -643,22 +643,22 @@ watch(() => props.systemLogs.length, () => {
 
 /* System Logs */
 .system-logs {
-  background: #000;
-  color: #DDD;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
   padding: 16px;
   font-family: 'JetBrains Mono', monospace;
-  border-top: 1px solid #222;
+  border-top: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .log-header {
   display: flex;
   justify-content: space-between;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-color);
   padding-bottom: 8px;
   margin-bottom: 8px;
   font-size: 10px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .log-content {
@@ -675,7 +675,7 @@ watch(() => props.systemLogs.length, () => {
 }
 
 .log-content::-webkit-scrollbar-thumb {
-  background: #333;
+  background: var(--bg-secondary);
   border-radius: 2px;
 }
 
@@ -687,12 +687,12 @@ watch(() => props.systemLogs.length, () => {
 }
 
 .log-time {
-  color: #666;
+  color: var(--text-secondary);
   min-width: 75px;
 }
 
 .log-msg {
-  color: #CCC;
+  color: var(--text-secondary);
   word-break: break-all;
 }
 </style>
