@@ -11,88 +11,17 @@
     </nav>
 
     <div class="main-content">
-      <!-- Top Half: Hero Area -->
-      <section class=”hero-section”>
-        <div class=”hero-left”>
-          <div class=”tag-row”>
-            <span class=”orange-tag”>A Universal AI Business Intelligence Engine</span>
-            <span class=”version-text”> / v1</span>
-          </div>
-
-          <h1 class=”main-title”>
-            Upload Any Report — <span class=”gradient-text”>Predict Business Outcomes</span>
-          </h1> <br>
-
-          <div class=”hero-desc”>
-            <p>
-              Upload any business report, <span class=”highlight-bold”>Swarm Analytics</span> generates a parallel world composed of up to <span class=”highlight-orange”>millions of Agents</span> based on a graphRAG model of your data. Then, ask questions and find <span class=”highlight-code”>”local optima”</span> in dynamic environments through complex swarm interactions.
-            </p>
-          </div>
-           
-          <div class="decoration-square"></div>
+      <!-- Hero Area -->
+      <section class="hero-section">
+        <div class="hero-content">
+          <h1 class="main-title">Model 'Real-World' Scenarios</h1>
+          <p class="subtitle">A Universal AI Business Intelligence Engine to Optimize Decision Making</p>
         </div>
       </section>
 
-      <!-- Bottom Half: Dual Panel Layout -->
+      <!-- Interactive Console (Centered Stack) -->
       <section class="dashboard-section">
-        <!-- Left Panel: Status & Steps -->
-        <div class="left-panel">
-          <div class="panel-header">
-            <span class="status-dot">■</span> System Status
-          </div>
-
-          <h2 class="section-title">Ready</h2>
-          <p class="section-desc">
-            Prediction engine on standby. Upload multiple unstructured data files to initialize the simulation sequence.
-          </p>
-
-          <!-- Simulation Workflow Steps -->
-          <div class="steps-container">
-            <div class="steps-header">
-               <span class="diamond-icon">◇</span> Workflow Sequence
-            </div>
-            <div class="workflow-list">
-              <div class="workflow-item">
-                <span class="step-num">01</span>
-                <div class="step-info">
-                  <div class="step-title">Graph Build</div>
-                  <div class="step-desc">Reality seed extraction & individual/group memory injection & GraphRAG construction</div>
-                </div>
-              </div>
-              <div class="workflow-item">
-                <span class="step-num">02</span>
-                <div class="step-info">
-                  <div class="step-title">Environment Setup</div>
-                  <div class="step-desc">Entity-relation extraction & persona generation & environment config Agent injection of simulation parameters</div>
-                </div>
-              </div>
-              <div class="workflow-item">
-                <span class="step-num">03</span>
-                <div class="step-info">
-                  <div class="step-title">Start Simulation</div>
-                  <div class="step-desc">Dual-platform parallel simulation & auto-parse prediction requirements & dynamic temporal memory updates</div>
-                </div>
-              </div>
-              <div class="workflow-item">
-                <span class="step-num">04</span>
-                <div class="step-info">
-                  <div class="step-title">Report Generation</div>
-                  <div class="step-desc">ReportAgent has a rich toolset for deep interaction with the post-simulation environment</div>
-                </div>
-              </div>
-              <div class="workflow-item">
-                <span class="step-num">05</span>
-                <div class="step-info">
-                  <div class="step-title">Deep Interaction</div>
-                  <div class="step-desc">Chat with any individual in the simulated world & converse with ReportAgent</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Right Panel: Interactive Console -->
-        <div class="right-panel">
+        <div class="console-wrapper">
           <div class="console-box">
             <!-- Upload Area -->
             <div class="console-section">
@@ -286,10 +215,6 @@ const startSimulation = () => {
   --gray-light: #F5F5F5;
   --gray-text: #666666;
   --border: #E5E5E5;
-  /*
-    Use Space Grotesk as main heading font, JetBrains Mono for code/label font
-    Make sure these Google Fonts are imported in index.html
-  */
   --font-mono: 'JetBrains Mono', monospace;
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-cn: 'Noto Sans SC', system-ui, sans-serif;
@@ -355,291 +280,49 @@ const startSimulation = () => {
 /* Hero area */
 .hero-section {
   display: flex;
-  justify-content: space-between;
-  margin-bottom: 80px;
-  position: relative;
-}
-
-.hero-left {
-  flex: 1;
-  padding-right: 60px;
-}
-
-.tag-row {
-  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 15px;
-  margin-bottom: 25px;
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
+  text-align: center;
+  margin-bottom: 50px;
 }
 
-.orange-tag {
-  background: var(--orange);
-  color: var(--white);
-  padding: 4px 10px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  font-size: 0.75rem;
-}
-
-.version-text {
-  color: #999;
-  font-weight: 500;
-  letter-spacing: 0.5px;
+.hero-content {
+  max-width: 800px;
 }
 
 .main-title {
-  font-size: 4.5rem;
+  font-size: 2.2rem;
   line-height: 1.2;
-  font-weight: 500;
-  margin: 0 0 40px 0;
-  letter-spacing: -2px;
-  color: var(--black);
-}
-
-.gradient-text {
-  background: linear-gradient(90deg, #000000 0%, #444444 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  display: inline-block;
-}
-
-.hero-desc {
-  font-size: 1.05rem;
-  line-height: 1.8;
-  color: var(--gray-text);
-  max-width: 640px;
-  margin-bottom: 50px;
-  font-weight: 400;
-  text-align: justify;
-}
-
-.hero-desc p {
-  margin-bottom: 1.5rem;
-}
-
-.highlight-bold {
-  color: var(--black);
-  font-weight: 700;
-}
-
-.highlight-orange {
-  color: var(--orange);
-  font-weight: 700;
-  font-family: var(--font-mono);
-}
-
-.highlight-code {
-  background: rgba(0, 0, 0, 0.05);
-  padding: 2px 6px;
-  border-radius: 2px;
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-  color: var(--black);
   font-weight: 600;
-}
-
-.slogan-text {
-  font-size: 1.2rem;
-  font-weight: 520;
+  margin: 0 0 15px 0;
+  letter-spacing: -1px;
   color: var(--black);
-  letter-spacing: 1px;
-  border-left: 3px solid var(--orange);
-  padding-left: 15px;
-  margin-top: 20px;
 }
 
-.blinking-cursor {
-  color: var(--orange);
-  animation: blink 1s step-end infinite;
-  font-weight: 700;
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.decoration-square {
-  width: 16px;
-  height: 16px;
-  background: var(--orange);
-}
-
-.hero-right {
-  flex: 0.8;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-end;
-}
-
-.logo-container {
-  width: 100%;
-  display: flex;
-  justify-content: flex-end;
-  padding-right: 40px;
-}
-
-.hero-logo {
-  max-width: 500px; /* Adjust logo size */
-  width: 100%;
-}
-
-.scroll-down-btn {
-  width: 40px;
-  height: 40px;
-  border: 1px solid var(--border);
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--orange);
+.subtitle {
   font-size: 1.2rem;
-  transition: all 0.2s;
+  color: var(--gray-text);
+  font-weight: 400;
+  margin: 0;
 }
 
-.scroll-down-btn:hover {
-  border-color: var(--orange);
-}
-
-/* Dashboard dual panel layout */
+/* Dashboard vertical stack */
 .dashboard-section {
   display: flex;
-  gap: 60px;
-  border-top: 1px solid var(--border);
-  padding-top: 60px;
-  align-items: flex-start;
+  justify-content: center;
+  padding-bottom: 60px;
 }
 
-.dashboard-section .left-panel,
-.dashboard-section .right-panel {
-  display: flex;
-  flex-direction: column;
-}
-
-/* Left panel */
-.left-panel {
-  flex: 0.8;
-}
-
-.panel-header {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: #999;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.status-dot {
-  color: var(--orange);
-  font-size: 0.8rem;
-}
-
-.section-title {
-  font-size: 2rem;
-  font-weight: 520;
-  margin: 0 0 15px 0;
-}
-
-.section-desc {
-  color: var(--gray-text);
-  margin-bottom: 25px;
-  line-height: 1.6;
-}
-
-.metrics-row {
-  display: flex;
-  gap: 20px;
-  margin-bottom: 15px;
-}
-
-.metric-card {
-  border: 1px solid var(--border);
-  padding: 20px 30px;
-  min-width: 150px;
-}
-
-.metric-value {
-  font-family: var(--font-mono);
-  font-size: 1.8rem;
-  font-weight: 520;
-  margin-bottom: 5px;
-}
-
-.metric-label {
-  font-size: 0.85rem;
-  color: #999;
-}
-
-/* Simulation workflow steps */
-.steps-container {
-  border: 1px solid var(--border);
-  padding: 30px;
-  position: relative;
-}
-
-.steps-header {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: #999;
-  margin-bottom: 25px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.diamond-icon {
-  font-size: 1.2rem;
-  line-height: 1;
-}
-
-.workflow-list {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.workflow-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 20px;
-}
-
-.step-num {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  color: var(--black);
-  opacity: 0.3;
-}
-
-.step-info {
-  flex: 1;
-}
-
-.step-title {
-  font-weight: 520;
-  font-size: 1rem;
-  margin-bottom: 4px;
-}
-
-.step-desc {
-  font-size: 0.85rem;
-  color: var(--gray-text);
-}
-
-/* Right interactive console */
-.right-panel {
-  flex: 1.2;
+.console-wrapper {
+  width: 100%;
+  max-width: 800px;
 }
 
 .console-box {
-  border: 1px solid #CCC; /* Outer solid border */
-  padding: 8px; /* Inner padding for double-border effect */
+  border: 1px solid #CCC;
+  padding: 8px;
+  background: var(--white);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
 }
 
 .console-section {
@@ -661,7 +344,7 @@ const startSimulation = () => {
 
 .upload-zone {
   border: 1px dashed #CCC;
-  height: 200px;
+  height: 180px;
   overflow-y: auto;
   display: flex;
   align-items: center;
@@ -675,7 +358,7 @@ const startSimulation = () => {
   align-items: flex-start;
 }
 
-.upload-zone:hover {
+.upload-zone:hover, .upload-zone.drag-over {
   background: #F0F0F0;
   border-color: #999;
 }
@@ -693,12 +376,15 @@ const startSimulation = () => {
   justify-content: center;
   margin: 0 auto 15px;
   color: #999;
+  background: var(--white);
+  border-radius: 50%;
 }
 
 .upload-title {
   font-weight: 500;
   font-size: 0.9rem;
   margin-bottom: 5px;
+  color: var(--black);
 }
 
 .upload-hint {
@@ -736,6 +422,11 @@ const startSimulation = () => {
   cursor: pointer;
   font-size: 1.2rem;
   color: #999;
+  transition: color 0.2s;
+}
+
+.remove-btn:hover {
+  color: var(--orange);
 }
 
 .console-divider {
@@ -776,16 +467,12 @@ const startSimulation = () => {
   line-height: 1.6;
   resize: vertical;
   outline: none;
-  min-height: 150px;
+  min-height: 120px;
+  color: var(--black);
 }
 
-.model-badge {
-  position: absolute;
-  bottom: 10px;
-  right: 15px;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: #AAA;
+.code-input::placeholder {
+  color: #999;
 }
 
 .start-engine-btn {
@@ -804,19 +491,14 @@ const startSimulation = () => {
   transition: all 0.3s ease;
   letter-spacing: 1px;
   position: relative;
-  overflow: hidden;
 }
 
-/* Clickable state (not disabled) */
 .start-engine-btn:not(:disabled) {
-  background: var(--black);
-  border: 1px solid var(--black);
   animation: pulse-border 2s infinite;
 }
 
 .start-engine-btn:hover:not(:disabled) {
   background: var(--orange);
-  border-color: var(--orange);
   transform: translateY(-2px);
 }
 
@@ -825,38 +507,28 @@ const startSimulation = () => {
 }
 
 .start-engine-btn:disabled {
-  background: #ffa4a4;
-  color: #ffffff;
+  background: #CCC;
+  color: #FFF;
   cursor: not-allowed;
-  transform: none;
-  border: 1px solid #E5E5E5;
 }
 
-/* Guide animation: subtle border pulse */
 @keyframes pulse-border {
-  0% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.2); }
+  0% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.1); }
   70% { box-shadow: 0 0 0 6px rgba(0, 0, 0, 0); }
   100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
 }
 
-/* Responsive layout */
-@media (max-width: 1024px) {
-  .dashboard-section {
-    flex-direction: column;
+@media (max-width: 768px) {
+  .main-content {
+    padding: 30px 20px;
   }
   
-  .hero-section {
-    flex-direction: column;
+  .main-title {
+    font-size: 1.8rem;
   }
   
-  .hero-left {
-    padding-right: 0;
-    margin-bottom: 40px;
-  }
-  
-  .hero-logo {
-    max-width: 200px;
-    margin-bottom: 20px;
+  .subtitle {
+    font-size: 1rem;
   }
 }
 </style>
