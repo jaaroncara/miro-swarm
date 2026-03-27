@@ -5,10 +5,6 @@
     ref="historyContainer"
   >
     <!-- Background decoration: tech grid lines (only shown when projects exist) -->
-    <div v-if="projects.length > 0 || loading" class="tech-grid-bg">
-      <div class="grid-pattern"></div>
-      <div class="gradient-overlay"></div>
-    </div>
 
     <!-- Title area -->
     <div class="section-header">
@@ -18,17 +14,20 @@
     </div>
 
     <!-- Cards container (only shown when projects exist) -->
-    <div v-if="projects.length > 0" class="cards-container" :class="{ expanded: isExpanded }" :style="containerStyle">
+    <div v-if="projects.length > 0" class="cards-container">
       <div 
         v-for="(project, index) in projects" 
         :key="project.simulation_id"
         class="project-card"
-        :class="{ expanded: isExpanded, hovering: hoveringCard === index }"
-        :style="getCardStyle(index)"
-        @mouseenter="hoveringCard = index"
-        @mouseleave="hoveringCard = null"
         @click="navigateToProject(project)"
       >
+        <!-- Delete Button -->
+        <button class="delete-project-btn" @click.stop="handleDeleteProject(project)" title="Delete Project">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
         <!-- Card header: simulation_id and feature availability status -->
         <div class="card-header">
           <span class="card-id">{{ formatSimulationId(project.simulation_id) }}</span>
@@ -195,99 +194,37 @@ import { ref, computed, onMounted, onUnmounted, onActivated, watch, nextTick } f
 import { useRouter, useRoute } from 'vue-router'
 import { getSimulationHistory } from '../api/simulation'
 
+
+import { deleteProject } from '../api/graph'
+
+// Handle delete project
+const handleDeleteProject = async (project) => {
+  if (confirm(`Are you sure you want to delete prediction ${formatSimulationId(project.simulation_id)}?`)) {
+    try {
+      loading.value = true
+      // We pass the project_id if it exists, otherwise we'd need a delete simulation endpoint.
+      if (project.project_id) {
+         await deleteProject(project.project_id)
+      }
+      // Reload logic
+      await loadHistory()
+    } catch (e) {
+      console.error(e)
+      alert("Failed to delete project.")
+    } finally {
+      loading.value = false
+    }
+  }
+}
+
 const router = useRouter()
 const route = useRoute()
 
 // State
 const projects = ref([])
 const loading = ref(true)
-const isExpanded = ref(false)
-const hoveringCard = ref(null)
-const historyContainer = ref(null)
-const selectedProject = ref(null)  // Currently selected project (for modal)
-let observer = null
-let isAnimating = false  // Animation lock to prevent flickering
-let expandDebounceTimer = null  // Debounce timer
-let pendingState = null  // Track the pending target state
-
-// Card layout config - adjusted for wider proportions
-const CARDS_PER_ROW = 4
-const CARD_WIDTH = 280  
-const CARD_HEIGHT = 280 
-const CARD_GAP = 24
-
-// Dynamically compute container height style
-const containerStyle = computed(() => {
-  if (!isExpanded.value) {
-    // Collapsed state: fixed height
-    return { minHeight: '420px' }
-  }
-
-  // Expanded state: dynamically compute height based on card count
-  const total = projects.value.length
-  if (total === 0) {
-    return { minHeight: '280px' }
-  }
-  
-  const rows = Math.ceil(total / CARDS_PER_ROW)
-  // Calculate actual height needed: rows * card height + (rows-1) * gap + small bottom margin
-  const expandedHeight = rows * CARD_HEIGHT + (rows - 1) * CARD_GAP + 10
-  
-  return { minHeight: `${expandedHeight}px` }
-})
 
 // Get card style
-const getCardStyle = (index) => {
-  const total = projects.value.length
-  
-  if (isExpanded.value) {
-    // Expanded state: grid layout
-    const transition = 'transform 700ms cubic-bezier(0.23, 1, 0.32, 1), opacity 700ms cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.3s ease, border-color 0.3s ease'
-
-    const col = index % CARDS_PER_ROW
-    const row = Math.floor(index / CARDS_PER_ROW)
-    
-    // Calculate card count for the current row, ensure centering
-    const currentRowStart = row * CARDS_PER_ROW
-    const currentRowCards = Math.min(CARDS_PER_ROW, total - currentRowStart)
-    
-    const rowWidth = currentRowCards * CARD_WIDTH + (currentRowCards - 1) * CARD_GAP
-    
-    const startX = -(rowWidth / 2) + (CARD_WIDTH / 2)
-    const colInRow = index % CARDS_PER_ROW
-    const x = startX + colInRow * (CARD_WIDTH + CARD_GAP)
-    
-    // Expand downward, increase spacing from title
-    const y = 20 + row * (CARD_HEIGHT + CARD_GAP)
-
-    return {
-      transform: `translate(${x}px, ${y}px) rotate(0deg) scale(1)`,
-      zIndex: 100 + index,
-      opacity: 1,
-      transition: transition
-    }
-  } else {
-    // Collapsed state: fan-stacked
-    const transition = 'transform 700ms cubic-bezier(0.23, 1, 0.32, 1), opacity 700ms cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.3s ease, border-color 0.3s ease'
-
-    const centerIndex = (total - 1) / 2
-    const offset = index - centerIndex
-    
-    const x = offset * 35
-    // Adjust starting position, close to title but with adequate spacing
-    const y = 25 + Math.abs(offset) * 8
-    const r = offset * 3
-    const s = 0.95 - Math.abs(offset) * 0.05
-    
-    return {
-      transform: `translate(${x}px, ${y}px) rotate(${r}deg) scale(${s})`,
-      zIndex: 10 + index,
-      opacity: 1,
-      transition: transition
-    }
-  }
-}
-
 // Get style class based on round progress
 const getProgressClass = (simulation) => {
   const current = simulation.current_round || 0
@@ -450,87 +387,6 @@ const loadHistory = async () => {
   }
 }
 
-// Initialize IntersectionObserver
-const initObserver = () => {
-  if (observer) {
-    observer.disconnect()
-  }
-  
-  observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        const shouldExpand = entry.isIntersecting
-        
-        // Update pending target state (always record latest target state regardless of animation)
-        pendingState = shouldExpand
-        
-        // Clear previous debounce timer (new scroll intent overrides old one)
-        if (expandDebounceTimer) {
-          clearTimeout(expandDebounceTimer)
-          expandDebounceTimer = null
-        }
-        
-        // If animating, only record state, handle after animation ends
-        if (isAnimating) return
-        
-        // If target state matches current state, no action needed
-        if (shouldExpand === isExpanded.value) {
-          pendingState = null
-          return
-        }
-        
-        // Use debounced delay for state transitions to prevent rapid flickering
-        // Shorter delay for expanding (50ms), longer for collapsing (200ms) for stability
-        const delay = shouldExpand ? 50 : 200
-        
-        expandDebounceTimer = setTimeout(() => {
-          // Check if animating
-          if (isAnimating) return
-          
-          // Check if pending state still needs execution (may have been overridden by later scrolls)
-          if (pendingState === null || pendingState === isExpanded.value) return
-          
-          // Set animation lock
-          isAnimating = true
-          isExpanded.value = pendingState
-          pendingState = null
-          
-          // Unlock after animation completes, check for pending state changes
-          setTimeout(() => {
-            isAnimating = false
-            
-            // After animation ends, check for new pending state
-            if (pendingState !== null && pendingState !== isExpanded.value) {
-              // Delay a short time before executing, avoid switching too fast
-              expandDebounceTimer = setTimeout(() => {
-                if (pendingState !== null && pendingState !== isExpanded.value) {
-                  isAnimating = true
-                  isExpanded.value = pendingState
-                  pendingState = null
-                  setTimeout(() => {
-                    isAnimating = false
-                  }, 750)
-                }
-              }, 100)
-            }
-          }, 750)
-        }, delay)
-      })
-    },
-    {
-      // Use multiple thresholds for smoother detection
-      threshold: [0.4, 0.6, 0.8],
-      // Adjust rootMargin, shrink viewport bottom upward, requires more scroll to trigger expand
-      rootMargin: '0px 0px -150px 0px'
-    }
-  )
-  
-  // Start observing
-  if (historyContainer.value) {
-    observer.observe(historyContainer.value)
-  }
-}
-
 // Watch route changes, reload data when returning to home page
 watch(() => route.path, (newPath) => {
   if (newPath === '/') {
@@ -544,9 +400,7 @@ onMounted(async () => {
   await loadHistory()
   
   // Initialize observer after DOM rendering
-  setTimeout(() => {
-    initObserver()
-  }, 100)
+  
 })
 
 // If using keep-alive, reload data when component is activated
@@ -653,36 +507,59 @@ onUnmounted(() => {
 
 /* Cards container */
 .cards-container {
-  position: relative;
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  align-items: flex-start;
+  gap: 24px;
   padding: 0 40px;
-  transition: min-height 700ms cubic-bezier(0.23, 1, 0.32, 1);
-  /* min-height dynamically computed by JS, adapts to card count */
 }
 
 /* Project card */
 .project-card {
-  position: absolute;
+  position: relative;
   width: 280px;
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
-  border-radius: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   padding: 14px;
   cursor: pointer;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  transition: box-shadow 0.3s ease, border-color 0.3s ease, transform 700ms cubic-bezier(0.23, 1, 0.32, 1), opacity 700ms cubic-bezier(0.23, 1, 0.32, 1);
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.4);
+  transition: transform 0.2s ease, border-color 0.2s ease;
 }
 
 .project-card:hover {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  border-color: rgba(0, 0, 0, 0.4);
-  z-index: 1000 !important;
+  transform: translateY(-4px);
+  border-color: var(--text-primary);
+  z-index: 10;
 }
 
-.project-card.hovering {
-  z-index: 1000 !important;
+.delete-project-btn {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 28px;
+  height: 28px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.2s;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.project-card:hover .delete-project-btn {
+  opacity: 1;
+}
+
+.delete-project-btn:hover {
+  color: var(--error-color, #dc3545);
+  border-color: var(--error-color, #dc3545);
+  transform: scale(1.1);
 }
 
 /* Card header */
@@ -950,22 +827,6 @@ onUnmounted(() => {
 .card-footer .card-progress.completed { color: #10B981; }
 .card-footer .card-progress.in-progress { color: #F59E0B; }
 .card-footer .card-progress.not-started { color: #9CA3AF; }
-
-/* Bottom decoration line */
-.card-bottom-line {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  width: 0;
-  background-color: var(--text-primary);
-  transition: width 0.5s cubic-bezier(0.23, 1, 0.32, 1);
-  z-index: 20;
-}
-
-.project-card:hover .card-bottom-line {
-  width: 100%;
-}
 
 /* Empty state */
 .empty-state, .loading-state {
