@@ -3,7 +3,7 @@
     <nav class="navbar">
       <div class="nav-brand">SWARM ANALYTICS</div>
       <div class="nav-links">
-        <a href="https://github.com/jaaroncara" target="_blank" class="github-link">
+        <a href="https://github.com/jaaroncara/miro-swarm" target="_blank" class="github-link">
           @github <span class="arrow">↗</span>
         </a>
       </div>
