@@ -220,13 +220,46 @@ class KuzuDBStorage(GraphStorage):
         self.db_path = abs_db_path
         self._database_path = os.path.join(self.db_path, "graph.kuzu")
         os.makedirs(self.db_path, exist_ok=True)
-        try:
-            self._database = kuzu.Database(self._database_path)
-            self._connection = kuzu.Connection(self._database)
-            self._initialize_schema()
-        except Exception as exc:  # pragma: no cover - depends on local Kuzu runtime
-            logger.error("Failed to initialize KuzuDB storage at %s: %s", self._database_path, exc)
-            raise RuntimeError(f"Failed to initialize KuzuDB storage at {self.db_path}: {exc}") from exc
+
+        # Retry logic for transient file-lock failures (e.g. cloud-sync agents
+        # like OneDrive's fileproviderd holding an fd on the .kuzu file).
+        import time
+
+        max_attempts = 5
+        retry_delay = 1.0  # seconds, doubles each attempt
+        last_exc: Exception | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self._database = kuzu.Database(self._database_path)
+                self._connection = kuzu.Connection(self._database)
+                self._initialize_schema()
+                if attempt > 1:
+                    logger.info(
+                        "KuzuDB lock acquired on attempt %d at %s",
+                        attempt,
+                        self._database_path,
+                    )
+                return  # success
+            except Exception as exc:
+                last_exc = exc
+                is_lock_error = "lock" in str(exc).lower()
+                if is_lock_error and attempt < max_attempts:
+                    logger.warning(
+                        "KuzuDB lock contention at %s (attempt %d/%d), retrying in %.1fs: %s",
+                        self._database_path,
+                        attempt,
+                        max_attempts,
+                        retry_delay,
+                        exc,
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    break
+
+        logger.error("Failed to initialize KuzuDB storage at %s: %s", self._database_path, last_exc)
+        raise RuntimeError(f"Failed to initialize KuzuDB storage at {self.db_path}: {last_exc}") from last_exc
 
     def _execute(self, query: str, params: Optional[Dict[str, Any]] = None):
         try:

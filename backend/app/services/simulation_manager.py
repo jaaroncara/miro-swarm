@@ -14,6 +14,8 @@ from datetime import datetime
 from enum import Enum
 
 from ..config import Config
+
+from ..config import Config
 from ..utils.logger import get_logger
 from .entity_reader import EntityReader, FilteredEntities
 from .oasis_profile_generator import OasisProfileGenerator, OasisAgentProfile
@@ -123,11 +125,8 @@ class SimulationManager:
     4. Prepare all files needed by preset scripts
     """
     
-    # Simulation data storage directory
-    SIMULATION_DATA_DIR = os.path.join(
-        os.path.dirname(__file__), 
-        '../../uploads/simulations'
-    )
+    # Simulation data storage directory — use Config so env-override works
+    SIMULATION_DATA_DIR = Config.OASIS_SIMULATION_DATA_DIR
     
     def __init__(self):
         # Ensure directory exists

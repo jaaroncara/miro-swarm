@@ -178,19 +178,37 @@ const handleGoBack = () => {
 // --- Data Logic ---
 
 const initProject = async () => {
+  _beacon('MV:initProject', `projectId=${currentProjectId.value}`)
   addLog('Project view initialized.')
   if (currentProjectId.value === 'new') {
-    await handleNewProject()
-  } else {
+    addLog('No project ID. Redirecting to home page.')
+    _beacon('MV:initProject:redirectHome')
+    router.replace({ path: '/' })
+    return
+  }
+  _beacon('MV:initProject:callingLoadProject')
+  try {
     await loadProject()
+    _beacon('MV:initProject:loadProjectDone')
+  } catch (err) {
+    _beacon('MV:initProject:loadProjectError', String(err))
   }
 }
 
+// Fire-and-forget debug beacon (shows up in backend logs)
+const _beacon = (step, detail = '') => {
+  try { fetch('/api/debug/beacon', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ step, detail }) }) } catch {}
+}
+
 const handleNewProject = async () => {
+  _beacon('handleNewProject:start')
   const pending = getPendingUpload()
+  _beacon('getPendingUpload', `isPending=${pending.isPending} files=${pending.files.length}`)
   if (!pending.isPending || pending.files.length === 0) {
-    error.value = 'No pending files found.'
-    addLog('Error: No pending files found for new project.')
+    error.value = 'No pending files found. Please start from the home page.'
+    addLog('Error: No pending upload data – redirecting to home page.')
+    _beacon('handleNewProject:noPendingFiles')
+    setTimeout(() => router.replace({ path: '/' }), 2000)
     return
   }
   
@@ -199,29 +217,41 @@ const handleNewProject = async () => {
     currentPhase.value = 0
     ontologyProgress.value = { message: 'Uploading and analyzing docs...' }
     addLog('Starting ontology generation: Uploading files...')
+    _beacon('generateOntology:calling')
     
     const formData = new FormData()
     pending.files.forEach(f => formData.append('files', f))
     formData.append('simulation_requirement', pending.simulationRequirement)
     
     const res = await generateOntology(formData)
+    _beacon('generateOntology:returned', `success=${res?.success} keys=${Object.keys(res || {})}`)
     if (res.success) {
       clearPendingUpload()
       currentProjectId.value = res.data.project_id
       projectData.value = res.data
-      
-      router.replace({ name: 'Process', params: { projectId: res.data.project_id } })
       ontologyProgress.value = null
       addLog(`Ontology generated successfully for project ${res.data.project_id}`)
+      _beacon('ontologyOK', `projectId=${res.data.project_id}`)
+
+      // Update the URL without Vue Router to avoid any lifecycle side-effects
+      try {
+        window.history.replaceState({}, '', `/process/${res.data.project_id}`)
+      } catch { /* non-critical */ }
+
+      // Immediately start graph build — this is the critical next step
+      _beacon('startBuildGraph:calling')
       await startBuildGraph()
+      _beacon('startBuildGraph:done')
     } else {
       error.value = res.error || 'Ontology generation failed'
       addLog(`Error generating ontology: ${error.value}`)
+      _beacon('ontologyFail', error.value)
     }
   } catch (err) {
     const errorMsg = err.response?.data?.error || err.message;
     error.value = errorMsg;
     addLog(`Exception in handleNewProject: ${errorMsg}`);
+    _beacon('handleNewProject:exception', errorMsg)
   } finally {
     loading.value = false
   }
@@ -230,8 +260,10 @@ const handleNewProject = async () => {
 const loadProject = async () => {
   try {
     loading.value = true
+    _beacon('MV:loadProject:start', currentProjectId.value)
     addLog(`Loading project ${currentProjectId.value}...`)
     const res = await getProject(currentProjectId.value)
+    _beacon('MV:loadProject:gotResponse', `success=${res?.success} status=${res?.data?.status}`)
     if (res.success) {
       projectData.value = res.data
       updatePhaseByStatus(res.data.status)
@@ -396,6 +428,7 @@ const stopGraphPolling = () => {
 }
 
 onMounted(() => {
+  _beacon('MV:onMounted', `projectId=${currentProjectId.value}`)
   initProject()
 })
 

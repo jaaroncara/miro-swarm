@@ -1525,9 +1525,10 @@ Return the sub-question list in JSON format."""
         import csv
 
         # Build profile file path
+        from ..config import Config
         sim_dir = os.path.join(
-            os.path.dirname(__file__),
-            f'../../uploads/simulations/{simulation_id}'
+            Config.OASIS_SIMULATION_DATA_DIR,
+            simulation_id
         )
 
         profiles = []

@@ -203,11 +203,11 @@ class SimulationRunner:
     4. Support pause/stop/resume operations
     """
     
-    # Run state storage directory
-    RUN_STATE_DIR = os.path.join(
-        os.path.dirname(__file__),
-        '../../uploads/simulations'
-    )
+    # Run state storage directory — use Config so env-override works
+    # (Resolved at import time; accessed via cls.RUN_STATE_DIR from classmethods)
+    from ..config import Config as _Cfg
+    RUN_STATE_DIR = _Cfg.OASIS_SIMULATION_DATA_DIR
+    del _Cfg
     
     # Scripts directory
     SCRIPTS_DIR = os.path.join(

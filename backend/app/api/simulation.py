@@ -1471,8 +1471,8 @@ def get_simulation_posts(simulation_id: str):
         offset = request.args.get('offset', 0, type=int)
         
         sim_dir = os.path.join(
-            os.path.dirname(__file__),
-            f'../../uploads/simulations/{simulation_id}'
+            Config.OASIS_SIMULATION_DATA_DIR,
+            simulation_id
         )
         
         db_file = f"{platform}_simulation.db"
@@ -1546,8 +1546,8 @@ def get_simulation_comments(simulation_id: str):
         offset = request.args.get('offset', 0, type=int)
         
         sim_dir = os.path.join(
-            os.path.dirname(__file__),
-            f'../../uploads/simulations/{simulation_id}'
+            Config.OASIS_SIMULATION_DATA_DIR,
+            simulation_id
         )
         
         db_path = os.path.join(sim_dir, "reddit_simulation.db")

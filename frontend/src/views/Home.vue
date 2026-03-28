@@ -1,6 +1,5 @@
 <template>
   <div class="home-container">
-    <!-- Top Navigation Bar -->
     <nav class="navbar">
       <div class="nav-brand">SWARM ANALYTICS</div>
       <div class="nav-links">
@@ -11,7 +10,6 @@
     </nav>
 
     <div class="main-content">
-      <!-- Hero Area -->
       <section class="hero-section">
         <div class="hero-content">
           <h1 class="main-title">Model 'Real-World' Scenarios</h1>
@@ -19,34 +17,25 @@
         </div>
       </section>
 
-      <!-- Interactive Console (Centered Stack) -->
       <section class="dashboard-section">
         <div class="console-wrapper">
           <div class="console-box">
-            <!-- Upload Area -->
+            <!-- Reports Section -->
             <div class="console-section">
               <div class="console-header">
                 <span class="console-label">01 / Business Reports</span>
                 <span class="console-meta">Supported formats: PDF, MD, TXT</span>
               </div>
               
-              <div 
-                class="upload-zone"
-                :class="{ 'drag-over': isDragOver, 'has-files': files.length > 0 }"
-                @dragover.prevent="handleDragOver"
-                @dragleave.prevent="handleDragLeave"
-                @drop.prevent="handleDrop"
-                @click="triggerFileInput"
-              >
-                <input
-                  ref="fileInput"
-                  type="file"
-                  multiple
-                  accept=".pdf,.md,.txt"
-                  @change="handleFileSelect"
-                  style="display: none"
-                  :disabled="loading"
-                />
+              <div class="upload-zone"
+                   :class="{ 'drag-over': isDragOver, 'has-files': files.length > 0 }"
+                   @dragover.prevent="handleDragOver"
+                   @dragleave.prevent="handleDragLeave"
+                   @drop.prevent="handleDrop"
+                   @click="triggerFileInput">
+                
+                <input ref="fileInput" type="file" multiple accept=".pdf,.md,.txt"
+                       @change="handleFileSelect" style="display: none" :disabled="loading" />
                 
                 <div v-if="files.length === 0" class="upload-placeholder">
                   <div class="upload-icon">↑</div>
@@ -64,12 +53,9 @@
               </div>
             </div>
 
-            <!-- Divider -->
-            <div class="console-divider">
-              <span>Input Parameters</span>
-            </div>
+            <div class="console-divider"><span>Input Parameters</span></div>
 
-            <!-- Input Area -->
+            <!-- Simulation Parameters Section -->
             <div class="console-section">
               <div class="console-header">
                 <span class="console-label">>_ 02 / Simulation Prompt</span>
@@ -85,23 +71,24 @@
               </div>
             </div>
 
-            <!-- Launch Button -->
+            <!-- Error Display -->
+            <div v-if="error" class="console-section error-section">
+              <div class="error-message">⚠ {{ error }}</div>
+            </div>
+
+            <!-- Submit Section -->
             <div class="console-section btn-section">
-              <button
-                class="start-engine-btn"
-                @click="startSimulation"
-                :disabled="!canSubmit || loading"
-              >
+              <button class="start-engine-btn" @click="startSimulation" :disabled="!canSubmit || loading">
                 <span v-if="!loading">Launch Simulation</span>
-                <span v-else>Initializing...</span>
+                <span v-else>Generating Ontology...</span>
                 <span class="btn-arrow">→</span>
               </button>
             </div>
           </div>
         </div>
       </section>
-
-      <!-- History Database -->
+      
+      <!-- History Section below dashboard -->
       <HistoryDatabase />
     </div>
   </div>
@@ -111,6 +98,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryDatabase from '../components/HistoryDatabase.vue'
+import { generateOntology } from '../api/graph'
 
 const router = useRouter()
 
@@ -189,128 +177,152 @@ const scrollToBottom = () => {
   })
 }
 
-// Start simulation - navigate immediately, API calls happen on Process page
-const startSimulation = () => {
+// Debug beacon helper
+const _b = (step, detail = '') => {
+  try { navigator.sendBeacon('/api/debug/beacon', JSON.stringify({ step, detail })) } catch {}
+  try { fetch('/api/debug/beacon', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ step, detail }) }).catch(() => {}) } catch {}
+}
+
+// Start simulation - upload files and call ontology API directly, then navigate
+const startSimulation = async () => {
   if (!canSubmit.value || loading.value) return
 
-  // Store pending upload data
-  import('../store/pendingUpload.js').then(({ setPendingUpload }) => {
-    setPendingUpload(files.value, formData.value.simulationRequirement)
+  loading.value = true
+  error.value = ''
+  _b('1-startSimulation', `files=${files.value.length}`)
 
-    // Navigate to Process page immediately (use special identifier for new project)
-    router.push({
-      name: 'Process',
-      params: { projectId: 'new' }
-    })
-  })
+  try {
+    // Build form data with files + requirement
+    const fd = new FormData()
+    files.value.forEach(f => fd.append('files', f))
+    fd.append('simulation_requirement', formData.value.simulationRequirement)
+
+    _b('2-callingAPI')
+
+    // Call ontology generation API directly (no fragile in-memory handoff)
+    const res = await generateOntology(fd)
+
+    _b('3-apiReturned', `success=${res?.success} hasData=${!!res?.data} projectId=${res?.data?.project_id}`)
+
+    if (res.success && res.data?.project_id) {
+      const pid = res.data.project_id
+      _b('4-navigating', pid)
+      // Navigate to Process page with the real project ID
+      router.push({
+        name: 'Process',
+        params: { projectId: pid }
+      }).then(() => {
+        _b('5-navSuccess', pid)
+      }).catch(err => {
+        _b('5-navFailed', String(err))
+        console.error('Navigation failed:', err)
+        error.value = 'Ontology generated but navigation failed. Project ID: ' + pid
+        loading.value = false
+      })
+    } else {
+      _b('4-ontologyFail', res?.error || 'no success')
+      error.value = res.error || 'Ontology generation failed – please try again.'
+      loading.value = false
+    }
+  } catch (err) {
+    _b('CATCH', String(err))
+    console.error('Failed to launch simulation:', err)
+    error.value = err.response?.data?.error || err.message || 'Failed to launch – please try again.'
+    loading.value = false
+  }
 }
 </script>
 
 <style scoped>
-/* Global variables & reset */
 :root {
-  --black: #000000;
-  --white: #FFFFFF;
-  --orange: #FF4500;
-  --gray-light: #F5F5F5;
-  --gray-text: #666666;
-  --border: #E5E5E5;
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-cn: 'Noto Sans SC', system-ui, sans-serif;
+  --bg-color: #000000;
+  --surface-color: #111111;
+  --border-color: #333333;
+  --text-primary: #ffffff;
+  --text-secondary: #888888;
+  --accent-color: #ffffff;
+  --accent-hover: #cccccc;
+  --error: #ff4444;
 }
 
 .home-container {
   min-height: 100vh;
-  background: var(--white);
-  font-family: var(--font-sans);
-  color: var(--black);
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Top Navigation */
 .navbar {
-  height: 60px;
-  background: var(--black);
-  color: var(--white);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 40px;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-color);
 }
 
 .nav-brand {
-  font-family: var(--font-mono);
-  font-weight: 800;
-  letter-spacing: 1px;
-  font-size: 1.2rem;
-}
-
-.nav-links {
-  display: flex;
-  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-primary);
 }
 
 .github-link {
-  color: var(--white);
+  color: var(--text-secondary);
   text-decoration: none;
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 0.85rem;
   display: flex;
   align-items: center;
-  gap: 8px;
-  transition: opacity 0.2s;
+  gap: 0.5rem;
+  transition: color 0.2s ease;
 }
 
 .github-link:hover {
-  opacity: 0.8;
+  color: var(--text-primary);
 }
 
 .arrow {
-  font-family: sans-serif;
+  font-family: monospace;
 }
 
-/* Main content area */
 .main-content {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 60px 40px;
-}
-
-/* Hero area */
-.hero-section {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  margin-bottom: 50px;
+  padding: 4rem 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
 }
 
-.hero-content {
-  max-width: 800px;
+.hero-section {
+  text-align: center;
+  margin-bottom: 4rem;
 }
 
 .main-title {
-  font-size: 2.2rem;
-  line-height: 1.2;
-  font-weight: 600;
-  margin: 0 0 15px 0;
-  letter-spacing: -1px;
-  color: var(--black);
+  font-size: 3.5rem;
+  font-weight: 500;
+  line-height: 1.1;
+  margin-bottom: 1rem;
+  letter-spacing: -0.02em;
 }
 
 .subtitle {
-  font-size: 1.2rem;
-  color: var(--gray-text);
-  font-weight: 400;
-  margin: 0;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.5;
 }
 
-/* Dashboard vertical stack */
 .dashboard-section {
   display: flex;
   justify-content: center;
-  padding-bottom: 60px;
+  margin-bottom: 4rem;
 }
 
 .console-wrapper {
@@ -319,216 +331,204 @@ const startSimulation = () => {
 }
 
 .console-box {
-  border: 1px solid #CCC;
-  padding: 8px;
-  background: var(--white);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
 }
 
 .console-section {
-  padding: 20px;
-}
-
-.console-section.btn-section {
-  padding-top: 0;
-}
-
-.console-header {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 15px;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: #666;
-}
-
-.upload-zone {
-  border: 1px dashed #CCC;
-  height: 180px;
-  overflow-y: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.3s;
-  background: #FAFAFA;
-}
-
-.upload-zone.has-files {
-  align-items: flex-start;
-}
-
-.upload-zone:hover, .upload-zone.drag-over {
-  background: #F0F0F0;
-  border-color: #999;
-}
-
-.upload-placeholder {
-  text-align: center;
-}
-
-.upload-icon {
-  width: 40px;
-  height: 40px;
-  border: 1px solid #DDD;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 15px;
-  color: #999;
-  background: var(--white);
-  border-radius: 50%;
-}
-
-.upload-title {
-  font-weight: 500;
-  font-size: 0.9rem;
-  margin-bottom: 5px;
-  color: var(--black);
-}
-
-.upload-hint {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: #999;
-}
-
-.file-list {
-  width: 100%;
-  padding: 15px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.file-item {
-  display: flex;
-  align-items: center;
-  background: var(--white);
-  padding: 8px 12px;
-  border: 1px solid #EEE;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-}
-
-.file-name {
-  flex: 1;
-  margin: 0 10px;
-}
-
-.remove-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1.2rem;
-  color: #999;
-  transition: color 0.2s;
-}
-
-.remove-btn:hover {
-  color: var(--orange);
+  padding: 2rem;
 }
 
 .console-divider {
   display: flex;
   align-items: center;
-  margin: 10px 0;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
 }
 
 .console-divider::before,
 .console-divider::after {
   content: '';
   flex: 1;
-  height: 1px;
-  background: #EEE;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .console-divider span {
-  padding: 0 15px;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: #BBB;
-  letter-spacing: 1px;
+  padding: 0 1rem;
+}
+
+.console-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.console-label {
+  color: var(--text-primary);
+}
+
+.console-meta {
+  color: var(--text-secondary);
+}
+
+.upload-zone {
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  padding: 3rem 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.upload-icon {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  color: var(--text-secondary);
+}
+
+.upload-title {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.upload-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.file-list {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.file-icon {
+  margin-right: 1rem;
+}
+
+.file-name {
+  flex: 1;
+  font-size: 0.9rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+.remove-btn:hover {
+  color: var(--error);
 }
 
 .input-wrapper {
-  position: relative;
-  border: 1px solid #DDD;
-  background: #FAFAFA;
+  margin-top: 1rem;
 }
 
 .code-input {
   width: 100%;
-  border: none;
-  background: transparent;
-  padding: 20px;
-  font-family: var(--font-mono);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 1rem;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.9rem;
-  line-height: 1.6;
+  line-height: 1.5;
   resize: vertical;
-  outline: none;
   min-height: 120px;
-  color: var(--black);
 }
 
-.code-input::placeholder {
-  color: #999;
+.code-input:focus {
+  outline: none;
+  border-color: var(--text-primary);
+}
+
+.error-section {
+  background: rgba(255, 80, 80, 0.08);
+  border-top: 1px solid rgba(255, 80, 80, 0.3);
+}
+
+.error-message {
+  color: #ff5050;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+}
+
+.btn-section {
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid var(--border-color);
 }
 
 .start-engine-btn {
-  width: 100%;
-  background: var(--black);
-  color: var(--white);
+  background: var(--text-primary);
+  color: var(--bg-color);
   border: none;
-  padding: 20px;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 1.1rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  padding: 0.75rem 2rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
-  letter-spacing: 1px;
-  position: relative;
-}
-
-.start-engine-btn:not(:disabled) {
-  animation: pulse-border 2s infinite;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  transition: all 0.2s ease;
 }
 
 .start-engine-btn:hover:not(:disabled) {
-  background: var(--orange);
-  transform: translateY(-2px);
-}
-
-.start-engine-btn:active:not(:disabled) {
-  transform: translateY(0);
+  background: var(--accent-hover);
+  transform: translateY(-1px);
 }
 
 .start-engine-btn:disabled {
-  background: #CCC;
-  color: #FFF;
+  opacity: 0.5;
   cursor: not-allowed;
-}
-
-@keyframes pulse-border {
-  0% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.1); }
-  70% { box-shadow: 0 0 0 6px rgba(0, 0, 0, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
 }
 
 @media (max-width: 768px) {
   .main-content {
-    padding: 30px 20px;
+    padding: 2rem 1rem;
   }
   
   .main-title {
-    font-size: 1.8rem;
+    font-size: 2.5rem;
   }
   
-  .subtitle {
-    font-size: 1rem;
+  .console-section {
+    padding: 1.5rem;
   }
 }
 </style>

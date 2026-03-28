@@ -82,6 +82,15 @@ def create_app(config_class=Config):
     def health():
         return {'status': 'ok', 'service': 'MiroFish Backend'}
 
+    # Debug beacon: frontend sends step markers so we can trace execution in logs
+    @app.route('/api/debug/beacon', methods=['POST'])
+    def debug_beacon():
+        data = request.get_json(silent=True) or {}
+        step = data.get('step', '?')
+        detail = data.get('detail', '')
+        logger.info(f"[FRONTEND BEACON] step={step}  detail={detail}")
+        return {'ok': True}
+
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_frontend(path):
