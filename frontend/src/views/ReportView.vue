@@ -3,7 +3,7 @@
     <!-- Header -->
     <header class="app-header">
       <div class="header-left">
-        <div class="brand" @click="router.push('/')">MIROFISH</div>
+        <div class="brand" @click="router.push('/')">SWARM ANALYTICS</div>
       </div>
       
       <div class="header-center">
@@ -318,7 +318,7 @@ onMounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #CCC;
+  background: var(--text-muted);
 }
 
 .status-indicator.processing .dot { background: #FF9800; animation: pulse 1s infinite; }

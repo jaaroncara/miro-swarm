@@ -52,7 +52,7 @@
         <div v-if="selectedItem" class="detail-panel">
           <div class="detail-panel-header">
             <span class="detail-title">{{ selectedItem.type === 'node' ? 'Node Details' : 'Relationship' }}</span>
-            <span v-if="selectedItem.type === 'node'" class="detail-type-badge" :style="{ background: selectedItem.color, color: '#fff' }">
+            <span v-if="selectedItem.type === 'node'" class="detail-type-badge" :style="{ background: selectedItem.color, color: 'var(--text-primary)' }">
               {{ selectedItem.entityType }}
             </span>
             <button class="detail-close" @click="closeDetailPanel">×</button>
@@ -571,16 +571,16 @@ const renderGraph = () => {
   const link = linkGroup.selectAll('path')
     .data(edges)
     .enter().append('path')
-    .attr('stroke', '#C0C0C0')
+    .attr('stroke', 'var(--border-color)')
     .attr('stroke-width', 1.5)
     .attr('fill', 'none')
     .style('cursor', 'pointer')
     .on('click', (event, d) => {
       event.stopPropagation()
       // Reset previously selected edge styles
-      linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
-      linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
-      linkLabels.attr('fill', '#666')
+      linkGroup.selectAll('path').attr('stroke', 'var(--border-color)').attr('stroke-width', 1.5)
+      linkLabelBg.attr('fill', 'var(--bg-secondary)')
+      linkLabels.attr('fill', 'var(--text-secondary)')
       // Highlight currently selected edge
       d3.select(event.target).attr('stroke', '#3498db').attr('stroke-width', 3)
       
@@ -594,7 +594,7 @@ const renderGraph = () => {
   const linkLabelBg = linkGroup.selectAll('rect')
     .data(edges)
     .enter().append('rect')
-    .attr('fill', 'rgba(255,255,255,0.95)')
+    .attr('fill', 'var(--bg-secondary)')
     .attr('rx', 3)
     .attr('ry', 3)
     .style('cursor', 'pointer')
@@ -602,9 +602,9 @@ const renderGraph = () => {
     .style('display', showEdgeLabels.value ? 'block' : 'none')
     .on('click', (event, d) => {
       event.stopPropagation()
-      linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
-      linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
-      linkLabels.attr('fill', '#666')
+      linkGroup.selectAll('path').attr('stroke', 'var(--border-color)').attr('stroke-width', 1.5)
+      linkLabelBg.attr('fill', 'var(--bg-secondary)')
+      linkLabels.attr('fill', 'var(--text-secondary)')
       // Highlight corresponding edge
       link.filter(l => l === d).attr('stroke', '#3498db').attr('stroke-width', 3)
       d3.select(event.target).attr('fill', 'rgba(52, 152, 219, 0.1)')
@@ -621,7 +621,7 @@ const renderGraph = () => {
     .enter().append('text')
     .text(d => d.name)
     .attr('font-size', '9px')
-    .attr('fill', '#666')
+    .attr('fill', 'var(--text-secondary)')
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'middle')
     .style('cursor', 'pointer')
@@ -630,9 +630,9 @@ const renderGraph = () => {
     .style('display', showEdgeLabels.value ? 'block' : 'none')
     .on('click', (event, d) => {
       event.stopPropagation()
-      linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
-      linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
-      linkLabels.attr('fill', '#666')
+      linkGroup.selectAll('path').attr('stroke', 'var(--border-color)').attr('stroke-width', 1.5)
+      linkLabelBg.attr('fill', 'var(--bg-secondary)')
+      linkLabels.attr('fill', 'var(--text-secondary)')
       // Highlight corresponding edge
       link.filter(l => l === d).attr('stroke', '#3498db').attr('stroke-width', 3)
       d3.select(event.target).attr('fill', '#3498db')
@@ -656,7 +656,7 @@ const renderGraph = () => {
     .enter().append('circle')
     .attr('r', 10)
     .attr('fill', d => getColor(d.type))
-    .attr('stroke', '#fff')
+    .attr('stroke', 'var(--bg-primary)')
     .attr('stroke-width', 2.5)
     .style('cursor', 'pointer')
     .call(d3.drag()
@@ -698,8 +698,8 @@ const renderGraph = () => {
     .on('click', (event, d) => {
       event.stopPropagation()
       // Reset all node styles
-      node.attr('stroke', '#fff').attr('stroke-width', 2.5)
-      linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
+      node.attr('stroke', 'var(--bg-primary)').attr('stroke-width', 2.5)
+      linkGroup.selectAll('path').attr('stroke', 'var(--border-color)').attr('stroke-width', 1.5)
       // Highlight selected node
       d3.select(event.target).attr('stroke', '#E91E63').attr('stroke-width', 4)
       // Highlight edges connected to this node
@@ -716,12 +716,12 @@ const renderGraph = () => {
     })
     .on('mouseenter', (event, d) => {
       if (!selectedItem.value || selectedItem.value.data?.uuid !== d.rawData.uuid) {
-        d3.select(event.target).attr('stroke', '#333').attr('stroke-width', 3)
+        d3.select(event.target).attr('stroke', 'var(--text-primary)').attr('stroke-width', 3)
       }
     })
     .on('mouseleave', (event, d) => {
       if (!selectedItem.value || selectedItem.value.data?.uuid !== d.rawData.uuid) {
-        d3.select(event.target).attr('stroke', '#fff').attr('stroke-width', 2.5)
+        d3.select(event.target).attr('stroke', 'var(--bg-primary)').attr('stroke-width', 2.5)
       }
     })
 
@@ -731,7 +731,7 @@ const renderGraph = () => {
     .enter().append('text')
     .text(d => d.name.length > 8 ? d.name.substring(0, 8) + '…' : d.name)
     .attr('font-size', '11px')
-    .attr('fill', '#333')
+    .attr('fill', 'var(--text-primary)')
     .attr('font-weight', '500')
     .attr('dx', 14)
     .attr('dy', 4)
@@ -776,10 +776,10 @@ const renderGraph = () => {
   // Click on blank area to close detail panel
   svg.on('click', () => {
     selectedItem.value = null
-    node.attr('stroke', '#fff').attr('stroke-width', 2.5)
-    linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
-    linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
-    linkLabels.attr('fill', '#666')
+    node.attr('stroke', 'var(--bg-primary)').attr('stroke-width', 2.5)
+    linkGroup.selectAll('path').attr('stroke', 'var(--border-color)').attr('stroke-width', 1.5)
+    linkLabelBg.attr('fill', 'var(--bg-secondary)')
+    linkLabels.attr('fill', 'var(--text-secondary)')
   })
 }
 
@@ -818,8 +818,8 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   height: 100%;
-  background-color: #FAFAFA;
-  background-image: radial-gradient(#D0D0D0 1.5px, transparent 1.5px);
+  background-color: var(--bg-primary);
+  background-image: radial-gradient(var(--border-color) 1.5px, transparent 1.5px);
   background-size: 24px 24px;
   overflow: hidden;
 }
@@ -834,7 +834,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(to bottom, rgba(255,255,255,0.95), rgba(255,255,255,0));
+  background: linear-gradient(to bottom, var(--bg-secondary), transparent);
   pointer-events: none;
 }
 
@@ -855,7 +855,7 @@ onUnmounted(() => {
 .tool-btn {
   height: 32px;
   padding: 0 12px;
-  border: 1px solid #E0E0E0;
+  border: 1px solid var(--border-color);
   background: var(--bg-primary);
   border-radius: 6px;
   display: flex;
@@ -872,7 +872,7 @@ onUnmounted(() => {
 .tool-btn:hover {
   background: var(--bg-secondary);
   color: var(--text-primary);
-  border-color: #CCC;
+  border-color: var(--border-color);
 }
 
 .tool-btn .btn-text {
@@ -916,7 +916,7 @@ onUnmounted(() => {
   position: absolute;
   bottom: 24px;
   left: 24px;
-  background: rgba(255,255,255,0.95);
+  background: var(--bg-secondary);
   padding: 12px 16px;
   border-radius: 8px;
   border: 1px solid var(--border-color);
@@ -946,7 +946,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #555;
+  color: var(--text-primary);
 }
 
 .legend-dot {
@@ -971,7 +971,7 @@ onUnmounted(() => {
   background: var(--bg-primary);
   padding: 8px 14px;
   border-radius: 20px;
-  border: 1px solid #E0E0E0;
+  border: 1px solid var(--border-color);
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   z-index: 10;
 }
@@ -1099,7 +1099,7 @@ input:checked + .slider:before {
 }
 
 .detail-label {
-  color: #888;
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
   min-width: 80px;
@@ -1119,13 +1119,13 @@ input:checked + .slider:before {
 
 .detail-value.fact-text {
   line-height: 1.5;
-  color: #444;
+  color: var(--text-primary);
 }
 
 .detail-section {
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid #F0F0F0;
+  border-top: 1px solid var(--border-color);
 }
 
 .section-title {
@@ -1147,7 +1147,7 @@ input:checked + .slider:before {
 }
 
 .property-key {
-  color: #888;
+  color: var(--text-muted);
   font-weight: 500;
   min-width: 90px;
 }
@@ -1159,7 +1159,7 @@ input:checked + .slider:before {
 
 .summary-text {
   line-height: 1.6;
-  color: #444;
+  color: var(--text-primary);
   font-size: 12px;
 }
 
@@ -1173,10 +1173,10 @@ input:checked + .slider:before {
   display: inline-block;
   padding: 4px 12px;
   background: var(--bg-secondary);
-  border: 1px solid #E0E0E0;
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   font-size: 11px;
-  color: #555;
+  color: var(--text-primary);
 }
 
 .episodes-list {
@@ -1188,8 +1188,8 @@ input:checked + .slider:before {
 .episode-tag {
   display: inline-block;
   padding: 6px 10px;
-  background: #F8F8F8;
-  border: 1px solid #E8E8E8;
+  background: var(--bg-secondary);
+  border: 1px solid var(--bg-tertiary);
   border-radius: 6px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
@@ -1199,7 +1199,7 @@ input:checked + .slider:before {
 
 /* Edge relation header */
 .edge-relation-header {
-  background: #F8F8F8;
+  background: var(--bg-secondary);
   padding: 12px;
   border-radius: 8px;
   margin-bottom: 16px;
@@ -1218,7 +1218,7 @@ input:checked + .slider:before {
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(8px);
-  color: #fff;
+  color: var(--text-primary);
   padding: 10px 20px;
   border-radius: 30px;
   font-size: 13px;
@@ -1265,7 +1265,7 @@ input:checked + .slider:before {
 .finished-hint .hint-icon {
   width: 18px;
   height: 18px;
-  color: #FFF;
+  color: var(--text-primary);
 }
 
 .finished-hint .hint-text {
@@ -1283,7 +1283,7 @@ input:checked + .slider:before {
   border: none;
   border-radius: 50%;
   cursor: pointer;
-  color: #FFF;
+  color: var(--text-primary);
   transition: all 0.2s;
   margin-left: 8px;
   flex-shrink: 0;
@@ -1298,7 +1298,7 @@ input:checked + .slider:before {
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #E0E0E0;
+  border: 3px solid var(--border-color);
   border-top-color: #7B2D8E;
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -1310,15 +1310,15 @@ input:checked + .slider:before {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: linear-gradient(135deg, #E8F5E9 0%, #F1F8E9 100%);
-  border: 1px solid #C8E6C9;
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  border: 1px solid var(--success-color);
 }
 
 .self-loop-count {
   margin-left: auto;
   font-size: 11px;
   color: var(--text-secondary);
-  background: rgba(255,255,255,0.8);
+  background: var(--bg-secondary);
   padding: 2px 8px;
   border-radius: 10px;
 }
@@ -1346,18 +1346,18 @@ input:checked + .slider:before {
 }
 
 .self-loop-item-header:hover {
-  background: #EEEEEE;
+  background: var(--bg-tertiary);
 }
 
 .self-loop-item.expanded .self-loop-item-header {
-  background: #E8E8E8;
+  background: var(--bg-tertiary);
 }
 
 .self-loop-index {
   font-size: 10px;
   font-weight: 600;
-  color: #888;
-  background: #E0E0E0;
+  color: var(--text-muted);
+  background: var(--border-color);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -1377,20 +1377,20 @@ input:checked + .slider:before {
   justify-content: center;
   font-size: 14px;
   font-weight: 600;
-  color: #888;
-  background: #E0E0E0;
+  color: var(--text-muted);
+  background: var(--border-color);
   border-radius: 4px;
   transition: all 0.2s;
 }
 
 .self-loop-item.expanded .self-loop-toggle {
-  background: #D0D0D0;
+  background: var(--border-color);
   color: var(--text-secondary);
 }
 
 .self-loop-item-content {
   padding: 12px;
-  border-top: 1px solid #EAEAEA;
+  border-top: 1px solid var(--border-color);
 }
 
 .self-loop-item-content .detail-row {

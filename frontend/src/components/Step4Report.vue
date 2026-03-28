@@ -2252,7 +2252,7 @@ watch(() => props.reportId, (newId) => {
   height: 8px;
   border-radius: 50%;
   background: var(--bg-tertiary);
-  box-shadow: 0 0 0 3px rgba(31, 41, 55, 0.15);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
   margin-right: 10px;
   flex-shrink: 0;
   animation: pulse-dot 1.5s ease-in-out infinite;
@@ -2260,10 +2260,10 @@ watch(() => props.reportId, (newId) => {
 
 @keyframes pulse-dot {
   0%, 100% {
-    box-shadow: 0 0 0 3px rgba(31, 41, 55, 0.15);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
   }
   50% {
-    box-shadow: 0 0 0 5px rgba(31, 41, 55, 0.1);
+    box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.05);
   }
 }
 
@@ -2352,11 +2352,11 @@ watch(() => props.reportId, (newId) => {
 }
 
 .left-panel:hover::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--bg-tertiary);
 }
 
 .left-panel::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--border-color);
 }
 
 /* Report Header */
@@ -2379,7 +2379,7 @@ watch(() => props.reportId, (newId) => {
 
 .report-tag {
   background: var(--bg-tertiary);
-  color: #FFFFFF;
+  color: var(--text-primary);
   font-size: 11px;
   font-weight: 700;
   padding: 4px 8px;
@@ -2680,19 +2680,19 @@ watch(() => props.reportId, (newId) => {
 
   /* Functional palette (low saturation, status-based) */
   --wf-border: var(--border-color);
-  --wf-divider: #F3F4F6;
+  --wf-divider: var(--border-color);
 
-  --wf-active-bg: #FAFAFA;
-  --wf-active-border: #1F2937;
-  --wf-active-dot: #1F2937;
-  --wf-active-text: #1F2937;
+  --wf-active-bg: var(--bg-secondary);
+  --wf-active-border: var(--accent-color);
+  --wf-active-dot: var(--accent-color);
+  --wf-active-text: var(--text-primary);
 
-  --wf-done-bg: #F9FAFB;
+  --wf-done-bg: var(--bg-tertiary);
   --wf-done-border: var(--border-color);
-  --wf-done-dot: #10B981;
+  --wf-done-dot: var(--success-color);
 
-  --wf-muted-dot: #D1D5DB;
-  --wf-todo-text: #9CA3AF;
+  --wf-muted-dot: var(--border-color);
+  --wf-todo-text: var(--text-muted);
 }
 
 .right-panel::-webkit-scrollbar {
@@ -2710,11 +2710,11 @@ watch(() => props.reportId, (newId) => {
 }
 
 .right-panel:hover::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--bg-tertiary);
 }
 
 .right-panel::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--border-color);
 }
 
 .mono {
@@ -2833,7 +2833,7 @@ watch(() => props.reportId, (newId) => {
   height: 10px;
   border-radius: 50%;
   background: var(--wf-muted-dot);
-  border: 2px solid #FFFFFF;
+  border: 2px solid var(--bg-primary);
   z-index: 1;
 }
 
@@ -2846,7 +2846,7 @@ watch(() => props.reportId, (newId) => {
 
 .wf-step--active .wf-step-dot {
   background: var(--wf-active-dot);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
 }
 
 .wf-step--done .wf-step-dot {
@@ -2957,7 +2957,7 @@ watch(() => props.reportId, (newId) => {
   height: 12px;
   border-radius: 50%;
   background: var(--wf-muted-dot);
-  border: 2px solid #FFFFFF;
+  border: 2px solid var(--bg-primary);
   z-index: 1;
 }
 
@@ -2971,7 +2971,7 @@ watch(() => props.reportId, (newId) => {
 /* Connector dot: status only */
 .dot-active {
   background: var(--wf-active-dot);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
 }
 
 .dot-done {
@@ -3417,7 +3417,7 @@ watch(() => props.reportId, (newId) => {
   padding: 14px 20px;
   font-size: 14px;
   font-weight: 600;
-  color: #FFFFFF;
+  color: var(--text-primary);
   background: var(--bg-tertiary);
   border: none;
   border-radius: 8px;
@@ -3426,7 +3426,7 @@ watch(() => props.reportId, (newId) => {
 }
 
 .next-step-btn:hover {
-  background: #374151;
+  background: var(--bg-tertiary);
 }
 
 .next-step-btn svg {
@@ -3686,7 +3686,7 @@ watch(() => props.reportId, (newId) => {
 :deep(.rel-edge) {
   font-size: 10px;
   font-weight: 600;
-  color: #FFFFFF;
+  color: var(--text-primary);
   background: #4F46E5;
   padding: 3px 10px;
   border-radius: 10px;
@@ -3841,7 +3841,7 @@ watch(() => props.reportId, (newId) => {
 
 :deep(.interview-display .agent-tab.active .tab-avatar) {
   background: #6366F1;
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 
 :deep(.interview-display .tab-name) {
@@ -3911,7 +3911,7 @@ watch(() => props.reportId, (newId) => {
 /* Selection Reason */
 :deep(.interview-display .selection-reason) {
   background: var(--bg-secondary);
-  border: 1px solid #E2E8F0;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 12px 14px;
   margin-bottom: 16px;
@@ -3976,7 +3976,7 @@ watch(() => props.reportId, (newId) => {
 
 :deep(.interview-display .a-badge) {
   background: #4F46E5;
-  color: #FFFFFF;
+  color: var(--text-primary);
   border: 1px solid #4F46E5;
 }
 
@@ -4559,7 +4559,7 @@ watch(() => props.reportId, (newId) => {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   font-weight: 700;
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 
 :deep(.insight-display .subquery-text) {
@@ -4783,8 +4783,8 @@ watch(() => props.reportId, (newId) => {
 }
 
 :deep(.panorama-display .fact-item.historical .fact-number) {
-  background: #9CA3AF;
-  color: #FFFFFF;
+  background: var(--border-color);
+  color: var(--text-primary);
 }
 
 :deep(.panorama-display .fact-content) {
@@ -5109,18 +5109,18 @@ watch(() => props.reportId, (newId) => {
 
 /* Console Logs - consistent with Step3Simulation.vue */
 .console-logs {
-  background: #000;
-  color: #DDD;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   padding: 16px;
   font-family: 'JetBrains Mono', monospace;
-  border-top: 1px solid #222;
+  border-top: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .log-header {
   display: flex;
   justify-content: space-between;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-color);
   padding-bottom: 8px;
   margin-bottom: 8px;
   font-size: 10px;
@@ -5150,7 +5150,7 @@ watch(() => props.reportId, (newId) => {
 }
 
 .log-msg {
-  color: #BBB;
+  color: var(--text-secondary);
   word-break: break-all;
 }
 

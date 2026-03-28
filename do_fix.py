@@ -1,0 +1,11 @@
+import re
+with open('frontend/src/components/Step4Report.vue', 'r') as f: content = f.read()
+content = re.sub(r'border: 2px solid #FFFFFF;', 'border: 2px solid var(--bg-primary);', content)
+content = re.sub(r'border: 1px solid #E2E8F0;', 'border: 1px solid var(--border-color);', content)
+content = re.sub(r'color: #FFFFFF;', 'color: var(--text-primary);', content)
+content = re.sub(r'background: rgba\(31, 41, 55, 0\.1\);', 'background: var(--bg-secondary);', content)
+content = re.sub(r'#F3F4F6', 'var(--border-color)', content)
+content = re.sub(r'#FAFAFA', 'var(--bg-secondary)', content)
+content = re.sub(r'#1F2937', 'var(--accent-color)', content)
+content = re.sub(r'#F9FAFB', 'var(--bg-tertiary)', content)
+content = re.sub(r'#D1D5DB', 'var(--border-color)', content)

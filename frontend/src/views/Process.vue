@@ -2,7 +2,7 @@
   <div class="process-page">
     <!-- Top Navigation Bar -->
     <nav class="navbar">
-      <div class="nav-brand" @click="goHome">MIROFISH</div>
+      <div class="nav-brand" @click="goHome">SWARM ANALYTICS</div>
 
       <!-- Center Step Indicator -->
       <div class="nav-center">
