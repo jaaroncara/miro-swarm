@@ -1,25 +1,24 @@
-# MiroFish
+# ABIE.ai (swarm analytics)
 
-A swarm intelligence prediction engine. Upload documents describing any scenario, and MiroFish simulates thousands of AI agents reacting on social media to predict how events will unfold.
+A swarm intelligence prediction engine designed for simulating business scenarios to model outcomes. Upload documents describing any scenario, market shift, or business strategy, and the engine simulates thousands of AI agents (acting as customers, competitors, employees, or stakeholders) reacting in a networked environment to predict how events and decisions might unfold.
 
-**Live:** [synth.scty.org](https://synth.scty.org)
-
-> Fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish) — fully translated to English, local graph storage with embedded KuzuDB by default, Claude/Codex CLI support added.
+> Built on a fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish) — fully translated to English, adapted for general scenario and business modeling, local graph storage with embedded KuzuDB by default, and expanded LLM provider support.
 
 ## What it does
 
-1. **Upload reality seeds** — PDFs, markdown, or text files (news articles, policy drafts, financial reports, anything)
-2. **Describe what to predict** — natural language prompt (e.g., "Predict public reaction to this policy over 60 days")
-3. **MiroFish builds a world** — extracts entities and relationships into a knowledge graph, generates AI agent personas with distinct personalities and opinions
-4. **Agents simulate social media** — dual-platform simulation (Twitter + Reddit) where agents post, reply, like, argue, and follow each other
-5. **Get a prediction report** — AI analyzes all simulation data and produces findings. Chat with the report agent or interview individual simulated agents.
+1. **Upload reality seeds** — Business plans, market research, policy drafts, financial reports, news articles, or internal memos (PDFs, markdown, text files)
+2. **Describe what to predict** — Natural language prompt (e.g., "Model market response to this new product launch over the next 60 days" or "Simulate stakeholder reactions to this strategic pivot")
+3. **The engine builds a world** — Extracts key entities and relationships into a knowledge graph, then generates AI agent personas with distinct roles, priorities, opinions, and personalities
+4. **Agents simulate interactions** — A multi-agent simulation where personas post, reply, debate, and adapt to the incoming scenario as various stakeholders
+5. **Get a prediction report** — An AI analyst reviews the aggregate simulation data to produce actionable findings. You can chat with the report agent or interview individual simulated stakeholders for deeper insights.
 
 ## Changes from upstream
 
 | Area | Upstream | This fork |
 |------|----------|-----------|
-| **Language** | Chinese UI + prompts | Full English (60+ files translated) |
-| **LLM providers** | Alibaba Qwen only | OpenAI, Anthropic, Claude CLI, Codex CLI |
+| **Use Case** | Social media prediction | Business scenario and outcome modeling |
+| **Language** | English Language UI + prompts | Full English (60+ files translated) |
+| **LLM providers** | OpenAI, Anthropic, Claude CLI, Codex CLI |
 | **Graph database** | Hosted graph service | Local KuzuDB (embedded, free) |
 | **Entity extraction** | Managed extraction pipeline | LLM-based extraction (uses your own model) |
 | **Auth** | Requires API keys | Can use Claude Code or Codex CLI subscriptions (no separate API cost) |
@@ -76,11 +75,11 @@ LLM_MODEL_NAME=gpt-4o-mini
 
 ## Using Codex CLI
 
-For Docker deployments, MiroFish now routes Codex CLI traffic through a local OpenAI-compatible sidecar service at `codex-proxy`. The `mirofish` container talks to `http://codex-proxy:11435/v1`, and the proxy translates each `/v1/chat/completions` request into `codex exec --skip-git-repo-check` with bounded concurrency.
+For Docker deployments, the app now routes Codex CLI traffic through a local OpenAI-compatible sidecar service at `codex-proxy`. The container talks to `http://codex-proxy:11435/v1`, and the proxy translates each `/v1/chat/completions` request into `codex exec --skip-git-repo-check` with bounded concurrency.
 
 `docker-compose.yml` already wires this up for the Docker stack:
 
-- `mirofish` runs with `LLM_PROVIDER=openai`
+-  runs with `LLM_PROVIDER=openai`
 - `LLM_BASE_URL=http://codex-proxy:11435/v1`
 - `LLM_API_KEY=codex`
 - `LLM_MODEL_NAME=codex`
@@ -117,7 +116,7 @@ backend/
       graph_tools.py       Search, interview, and analysis tools
     utils/
       llm_client.py        Multi-provider LLM client (OpenAI/Anthropic/CLI)
-  scripts/         OASIS simulation runner scripts (Twitter + Reddit)
+  scripts/         OASIS simulation runner scripts (Slack + Email)
 ```
 
 Workbench session metadata is persisted under `backend/uploads/workbench_sessions/`, and long-running task state is persisted under `backend/uploads/tasks/`.
@@ -128,8 +127,8 @@ The backend is being refactored toward a pi-style shape: one workbench session c
 
 ```
 Document upload → LLM ontology extraction → Knowledge graph (GraphStorage → KuzuDB by default)
-    → Entity filtering → Agent persona generation (LLM)
-    → OASIS dual-platform simulation (Twitter + Reddit subprocess)
+    → Entity filtering → Agent persona generation (Stakeholders, Competitors, etc.)
+    → OASIS behavioral simulation (Slack / Email)
     → Graph memory updates → Report generation (ReACT agent)
     → Interactive chat with report agent or individual agents
 ```
@@ -144,5 +143,3 @@ Document upload → LLM ontology extraction → Knowledge graph (GraphStorage �
 
 AGPL-3.0
 License
-
-AGPL-3.0
