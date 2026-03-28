@@ -12,8 +12,8 @@
     <div class="main-content">
       <section class="hero-section">
         <div class="hero-content">
-          <h1 class="main-title">Model 'Real-World' Scenarios</h1>
-          <p class="subtitle">A Universal AI Business Intelligence Engine to Optimize Decision Making</p>
+          <h1 class="main-title">SCENARIO SIMULATOR</h1>
+          <p class="subtitle">An AI Business Intelligence Engine to Optimize Decision Making</p>
         </div>
       </section>
 
@@ -23,7 +23,7 @@
             <!-- Reports Section -->
             <div class="console-section">
               <div class="console-header">
-                <span class="console-label">01 / Business Reports</span>
+                <span class="console-label">01 /// Business Reports</span>
                 <span class="console-meta">Supported formats: PDF, MD, TXT</span>
               </div>
               
@@ -58,7 +58,7 @@
             <!-- Simulation Parameters Section -->
             <div class="console-section">
               <div class="console-header">
-                <span class="console-label">>_ 02 / Simulation Prompt</span>
+                <span class="console-label">02 /// Simulation Prompt</span>
               </div>
               <div class="input-wrapper">
                 <textarea
@@ -494,7 +494,7 @@ const startSimulation = async () => {
 }
 
 .start-engine-btn {
-  background: var(--text-primary);
+  background: #000000;
   color: var(--bg-color);
   border: none;
   padding: 0.75rem 2rem;
