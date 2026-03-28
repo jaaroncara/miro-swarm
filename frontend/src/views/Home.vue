@@ -55,7 +55,7 @@
               </div>
             </div>
 
-            <div class="console-divider"><span>Input Parameters</span></div>
+            <div class="console-divider"><span>Provide Additional Context</span></div>
 
             <!-- Simulation Parameters Section -->
             <div class="console-section">
