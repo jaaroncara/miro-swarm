@@ -12,6 +12,7 @@
     <div class="main-content">
       <section class="hero-section">
         <div class="hero-content">
+          <img src="/icon.png" alt="Swarm Analytics Logo" class="hero-logo" />
           <h1 class="main-title">SCENARIO SIMULATOR</h1>
           <p class="subtitle">An AI Business Intelligence Engine to Optimize Decision Making</p>
         </div>
@@ -301,6 +302,12 @@ const startSimulation = async () => {
 .hero-section {
   text-align: center;
   margin-bottom: 4rem;
+}
+
+.hero-logo {
+  width: 80px;
+  height: auto;
+  margin-bottom: 1.5rem;
 }
 
 .main-title {
