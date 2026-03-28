@@ -6,11 +6,11 @@ A swarm intelligence prediction engine designed for simulating business scenario
 
 ## What it does
 
-1. **Upload reality seeds** — Business plans, market research, policy drafts, financial reports, news articles, or internal memos (PDFs, markdown, text files)
-2. **Describe what to predict** — Natural language prompt (e.g., "Model market response to this new product launch over the next 60 days" or "Simulate stakeholder reactions to this strategic pivot")
-3. **The engine builds a world** — Extracts key entities and relationships into a knowledge graph, then generates AI agent personas with distinct roles, priorities, opinions, and personalities
-4. **Agents simulate interactions** — A multi-agent simulation where personas post, reply, debate, and adapt to the incoming scenario as various stakeholders
-5. **Get a prediction report** — An AI analyst reviews the aggregate simulation data to produce actionable findings. You can chat with the report agent or interview individual simulated stakeholders for deeper insights.
+1. **Upload business context** — Product launch plans, market research, policy drafts, financial reports, news articles, or internal memos (PDFs, markdown, text files)
+2. **Describe a scenario** — Prompt in natural language (e.g., "Model market response to this new product launch over the next 60 days" or "Simulate stakeholder reactions to this strategic pivot")
+3. **The engine builds a business model** — Extracts key topics, statistics, and relationships into a knowledge graph — then generates AI agent personas with distinct roles, priorities, opinions, and personalities
+4. **Agents simulate team interactions** — A multi-agent simulation where personas post, reply, debate, and adapt to the incoming scenario as various stakeholders
+5. **Get a business report** — An AI analyst reviews the aggregate simulation data to produce actionable findings. You can chat with the report agent or interview individual simulated stakeholders for deeper insights.
 
 ## Changes from upstream
 
