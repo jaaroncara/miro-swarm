@@ -9,7 +9,7 @@
     <!-- Title area -->
     <div class="section-header">
       <div class="section-line"></div>
-      <span class="section-title">Prediction History</span>
+      <span class="section-title">RECENT SIMULATIONS</span>
       <div class="section-line"></div>
     </div>
 

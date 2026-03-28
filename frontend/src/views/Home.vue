@@ -4,7 +4,7 @@
       <div class="nav-brand">SWARM ANALYTICS</div>
       <div class="nav-links">
         <a href="https://github.com/jaaroncara" target="_blank" class="github-link">
-          Inspired by MiroFish <span class="arrow">↗</span>
+          @github <span class="arrow">↗</span>
         </a>
       </div>
     </nav>
@@ -13,8 +13,9 @@
       <section class="hero-section">
         <div class="hero-content">
           <img src="/icon.png" alt="Swarm Analytics Logo" class="hero-logo" />
-          <h1 class="main-title">SCENARIO SIMULATOR</h1>
-          <p class="subtitle">An AI Business Intelligence Engine to Optimize Decision Making</p>
+          <h1 class="main-title">ABIE.ai</h1>
+          <p class="subtitle"><b>Agentic Business Intelligence Engine</b></p>
+          <p class="subtitle">Upload reports. Describe scenarios. Simulate outcomes.</p>
         </div>
       </section>
 
@@ -65,7 +66,7 @@
                 <textarea
                   v-model="formData.simulationRequirement"
                   class="code-input"
-                  placeholder="// Describe simulation requirements (e.g. If adidas launches a new sales promotion, how should the brand marketing strategy adapt?)"
+                  placeholder="e.g. If adidas launches a new type of gift-with-purchase promotion, how should the brand marketing strategy adapt given the current business performance?"
                   rows="6"
                   :disabled="loading"
                 ></textarea>
