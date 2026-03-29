@@ -46,7 +46,7 @@ Please output in JSON format with the following structure:
     ],
     "edge_types": [
         {
-            "name": "Relationship type name (English, UPPER_SNAKE_CASE)",
+            "name": "Relationship type name (English, UPPER_CASE)",
             "description": "Brief description (English, no more than 100 characters)",
             "source_targets": [
                 {"source": "Source entity type", "target": "Target entity type"}
