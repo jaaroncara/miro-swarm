@@ -3,7 +3,7 @@ Example MCP Server
 A lightweight demonstration MCP server that exposes two tools:
 
   - lookup_sales_data: Returns mock quarterly sales figures for a region.
-  - get_weather: Returns mock weather data for a city.
+  - calculator: Performs basic arithmetic and statistical calculations.
 
 Usage (stdio transport — this is how MCPManager launches it):
     python -m mcp_servers.example
@@ -13,6 +13,9 @@ Or directly:
 """
 
 from mcp.server.fastmcp import FastMCP
+import math
+import statistics
+from typing import List
 
 mcp = FastMCP("example-tools")
 
@@ -20,12 +23,12 @@ mcp = FastMCP("example-tools")
 # ---------- Tool 1: Sales Database Lookup ----------
 
 _MOCK_SALES = {
-    ("north america", "q1"): {"revenue": 12_500_000, "units": 45_000, "growth": "+8%"},
-    ("north america", "q2"): {"revenue": 14_200_000, "units": 51_000, "growth": "+13%"},
-    ("europe", "q1"): {"revenue": 9_800_000, "units": 32_000, "growth": "+5%"},
-    ("europe", "q2"): {"revenue": 10_100_000, "units": 34_000, "growth": "+3%"},
-    ("asia", "q1"): {"revenue": 7_600_000, "units": 28_000, "growth": "+11%"},
-    ("asia", "q2"): {"revenue": 8_400_000, "units": 31_000, "growth": "+10%"},
+    ("north america", "q1"): {"revenue": 12500000, "units": 45000, "growth": "+8%"},
+    ("north america", "q2"): {"revenue": 14200000, "units": 51000, "growth": "+13%"},
+    ("canada", "q1"): {"revenue": 9800000, "units": 32000, "growth": "+5%"},
+    ("canada", "q2"): {"revenue": 10100000, "units": 34000, "growth": "+3%"},
+    ("latin america", "q1"): {"revenue": 7600000, "units": 28000, "growth": "+11%"},
+    ("latin america", "q2"): {"revenue": 8400000, "units": 31000, "growth": "+10%"},
 }
 
 
@@ -35,7 +38,7 @@ def lookup_sales_data(region: str, quarter: str) -> str:
     Query the sales database for revenue, units sold, and YoY growth.
 
     Args:
-        region: Geographic region (e.g. "North America", "Europe", "Asia")
+        region: Geographic region (e.g. "North America", "Canada", "Latin America")
         quarter: Fiscal quarter (e.g. "Q1", "Q2")
     """
     key = (region.lower().strip(), quarter.lower().strip())
@@ -50,34 +53,85 @@ def lookup_sales_data(region: str, quarter: str) -> str:
     )
 
 
-# ---------- Tool 2: Weather Lookup ----------
-
-_MOCK_WEATHER = {
-    "new york": {"temp_c": 22, "condition": "Partly cloudy", "humidity": "58%"},
-    "london": {"temp_c": 15, "condition": "Overcast", "humidity": "72%"},
-    "tokyo": {"temp_c": 28, "condition": "Sunny", "humidity": "65%"},
-    "portland": {"temp_c": 18, "condition": "Rainy", "humidity": "85%"},
-}
-
+# ---------- Tool 2: Calculator ----------
 
 @mcp.tool()
-def get_weather(city: str) -> str:
+def add(a: float, b: float) -> str:
     """
-    Get current weather conditions for a city.
-
-    Args:
-        city: City name (e.g. "New York", "London", "Tokyo")
+    Add two numbers.
     """
-    data = _MOCK_WEATHER.get(city.lower().strip())
-    if data is None:
-        return f"No weather data available for '{city}'."
-    return (
-        f"Weather in {city}:\n"
-        f"  Temperature: {data['temp_c']}°C\n"
-        f"  Condition:   {data['condition']}\n"
-        f"  Humidity:    {data['humidity']}"
-    )
+    return str(a + b)
 
+@mcp.tool()
+def subtract(a: float, b: float) -> str:
+    """
+    Subtract the second number from the first.
+    """
+    return str(a - b)
+
+@mcp.tool()
+def multiply(a: float, b: float) -> str:
+    """
+    Multiply two numbers.
+    """
+    return str(a * b)
+
+@mcp.tool()
+def divide(a: float, b: float) -> str:
+    """
+    Divide the first number by the second.
+    """
+    if b == 0:
+        return "Error: Division by zero."
+    return str(a / b)
+
+@mcp.tool()
+def calculate_standard_deviation(numbers: List[float]) -> str:
+    """
+    Calculate the standard deviation of a list of numbers.
+    """
+    if len(numbers) < 2:
+        return "Error: Standard deviation requires at least two data points."
+    return str(statistics.stdev(numbers))
+
+@mcp.tool()
+def calculate_min(numbers: List[float]) -> str:
+    """
+    Find the minimum value in a list of numbers.
+    """
+    if not numbers:
+        return "Error: List is empty."
+    return str(min(numbers))
+
+@mcp.tool()
+def calculate_max(numbers: List[float]) -> str:
+    """
+    Find the maximum value in a list of numbers.
+    """
+    if not numbers:
+        return "Error: List is empty."
+    return str(max(numbers))
+
+@mcp.tool()
+def calculate_average(numbers: List[float]) -> str:
+    """
+    Calculate the average (mean) of a list of numbers.
+    """
+    if not numbers:
+        return "Error: List is empty."
+    return str(statistics.mean(numbers))
+
+@mcp.tool()
+def calculate_mode(numbers: List[float]) -> str:
+    """
+    Calculate the mode of a list of numbers.
+    """
+    if not numbers:
+        return "Error: List is empty."
+    try:
+        return str(statistics.mode(numbers))
+    except statistics.StatisticsError:
+        return "Error: No unique mode."
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
