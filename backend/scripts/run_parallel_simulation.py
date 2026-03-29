@@ -1439,6 +1439,20 @@ async def run_reddit_simulation(
     return result
 
 
+async def _maybe_start_mcp(log_manager):
+    """Start the MCP tool server if MCP_SERVER_ENABLED=true."""
+    try:
+        from app.config import Config
+        if not Config.MCP_SERVER_ENABLED:
+            return
+        from app.utils.mcp_manager import get_mcp_manager
+        mgr = await get_mcp_manager()
+        tool_names = [t.name for t in mgr.get_tools()]
+        log_manager.info(f"MCP server connected — tools: {tool_names}")
+    except Exception as exc:
+        log_manager.info(f"MCP server startup failed (simulation will proceed without MCP tools): {exc}")
+
+
 async def main():
     parser = argparse.ArgumentParser(description='OASIS Dual-Platform Parallel Simulation')
     parser.add_argument(
@@ -1521,7 +1535,10 @@ async def main():
     log_manager.info("=" * 60)
     
     start_time = datetime.now()
-    
+
+    # --- Bootstrap MCP tool server if configured ---
+    await _maybe_start_mcp(log_manager)
+
     # Store simulation results for both platforms
     twitter_result: Optional[PlatformSimulation] = None
     reddit_result: Optional[PlatformSimulation] = None

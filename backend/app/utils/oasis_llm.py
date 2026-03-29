@@ -1,4 +1,10 @@
-"""Helpers for using CLI-backed LLMs inside OASIS/CAMEL simulations."""
+"""Helpers for using CLI-backed LLMs inside OASIS/CAMEL simulations.
+
+Includes transparent MCP tool-calling support: when MCP_SERVER_ENABLED=true,
+every agent chat completion is augmented with MCP tool schemas.  If the LLM
+responds with tool_calls, we execute them against the MCP server in a loop
+before returning the final natural-language answer to OASIS.
+"""
 
 import asyncio
 import json
@@ -7,7 +13,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from camel.models import ModelFactory
 from camel.models.openai_model import OpenAIModel
@@ -179,16 +185,20 @@ class CLIModel(OpenAIModel):
         tools: List[Dict[str, Any]] | None = None,
     ) -> ChatCompletion:
         if tools:
-            logger.warning('CLIModel ignores tool schemas; tool calling is not supported in OASIS CLI mode')
+            logger.warning('CLIModel ignores native OASIS tool schemas; using MCP tools instead if configured')
 
         temperature = float((self.model_config_dict or {}).get('temperature', 1.0) or 1.0)
         max_tokens = int((self.model_config_dict or {}).get('max_tokens', 4096) or 4096)
-        content = self._llm.chat(
-            messages=messages,
+
+        # --- MCP tool-calling loop (sync, for CLI providers) ---
+        final_content = _mcp_tool_loop_sync(
+            llm=self._llm,
+            messages=list(messages),
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        return self._build_completion(messages, content)
+
+        return self._build_completion(messages, final_content)
 
     async def _arequest_chat_completion(
         self,
@@ -268,3 +278,137 @@ def get_oasis_semaphore(config: Dict[str, Any], use_boost: bool = False) -> int:
     if resolved.is_cli:
         return int(os.environ.get('OASIS_CLI_SEMAPHORE', str(DEFAULT_CLI_SEMAPHORE)))
     return int(os.environ.get('OASIS_API_SEMAPHORE', str(DEFAULT_API_SEMAPHORE)))
+
+
+# ═══════════════════════════════════════════════════════════════
+# MCP Tool-Calling Loop
+# ═══════════════════════════════════════════════════════════════
+
+# A system-level instruction appended to the agent's messages when MCP tools
+# are available.  This teaches the LLM how to invoke tools using a lightweight
+# XML format that we can regex-parse from CLI providers that don't support
+# native OpenAI function-calling JSON.
+MCP_TOOL_SYSTEM_ADDENDUM = """
+You have access to external tools.  When you need real-world data to support
+your response, you SHOULD invoke a tool BEFORE composing your final answer.
+
+To call a tool, output a single <tool_call> block anywhere in your reply:
+
+<tool_call>
+{"name": "<tool_name>", "arguments": {<json_args>}}
+</tool_call>
+
+After each tool call you will receive an <observation> with the result.
+You may call up to {max_rounds} tools per turn.  When you have all the data
+you need, write your final answer normally (no <tool_call> block).
+
+Available tools:
+{tool_descriptions}
+""".strip()
+
+import re
+
+_TOOL_CALL_RE = re.compile(
+    r'<tool_call>\s*(\{.*?\})\s*</tool_call>',
+    re.DOTALL,
+)
+
+
+def _parse_tool_call_xml(text: str) -> Optional[Dict[str, Any]]:
+    """Extract the first <tool_call>{...}</tool_call> from *text*."""
+    match = _TOOL_CALL_RE.search(text)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(1))
+    except json.JSONDecodeError:
+        logger.warning(f"Failed to parse MCP tool call JSON: {match.group(1)[:200]}")
+        return None
+
+
+def _get_mcp_manager_if_enabled():
+    """Return the MCPManager singleton if MCP is configured and connected, else None."""
+    if not Config.MCP_SERVER_ENABLED:
+        return None
+    from .mcp_manager import get_mcp_manager_sync
+    mgr = get_mcp_manager_sync()
+    if mgr is not None and mgr.is_connected and mgr.has_tools():
+        return mgr
+    return None
+
+
+def _mcp_tool_loop_sync(
+    llm: LLMClient,
+    messages: List[Dict[str, Any]],
+    temperature: float = 1.0,
+    max_tokens: int = 4096,
+) -> str:
+    """
+    Run a single LLM turn with an optional MCP tool-calling inner loop.
+
+    If MCP is not enabled or has no tools, this degrades to a plain
+    ``llm.chat()`` call with zero overhead.
+
+    The loop:
+    1. Inject available MCP tool descriptions into the system message.
+    2. Call the LLM.
+    3. If the response contains a ``<tool_call>`` block, execute the tool
+       via MCPManager, append the observation, and loop (up to max rounds).
+    4. Return the final text once the LLM stops calling tools.
+    """
+    mgr = _get_mcp_manager_if_enabled()
+
+    if mgr is None:
+        # Fast path — no MCP overhead
+        return llm.chat(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    max_rounds = Config.MCP_MAX_TOOL_ROUNDS
+    tool_desc = mgr.get_react_tools_description()
+
+    # Inject tool instructions into the conversation
+    mcp_system_msg = MCP_TOOL_SYSTEM_ADDENDUM.format(
+        max_rounds=max_rounds,
+        tool_descriptions=tool_desc,
+    )
+    messages = list(messages)  # shallow copy
+    messages.insert(0, {"role": "system", "content": mcp_system_msg})
+
+    for round_idx in range(max_rounds + 1):  # +1 for the final non-tool turn
+        content = llm.chat(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        if content is None:
+            return "(empty response from LLM)"
+
+        call = _parse_tool_call_xml(content)
+        if call is None:
+            # No tool call — this is the final answer
+            return content
+
+        tool_name = call.get("name", "")
+        tool_args = call.get("arguments", {})
+        logger.info(f"MCP tool call (round {round_idx+1}/{max_rounds}): {tool_name}")
+
+        try:
+            observation = mgr.call_tool_sync(tool_name, tool_args)
+        except Exception as exc:
+            observation = f"Tool error: {exc}"
+            logger.warning(f"MCP tool '{tool_name}' failed: {exc}")
+
+        # Append assistant message + observation
+        messages.append({"role": "assistant", "content": content})
+        messages.append({
+            "role": "user",
+            "content": f"<observation>\n{observation}\n</observation>",
+        })
+
+    # Exhausted rounds — return whatever the last response was
+    logger.warning("MCP tool loop exhausted max rounds; returning last LLM response")
+    return content

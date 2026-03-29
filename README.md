@@ -2,7 +2,7 @@
 
 A swarm intelligence prediction engine designed for simulating business scenarios to model outcomes. Upload documents describing any scenario, market shift, or business strategy, and the engine simulates thousands of AI agents (acting as customers, competitors, employees, or stakeholders) reacting in a networked environment to predict how events and decisions might unfold.
 
-> Built on a fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish) — fully translated to English, adapted for general scenario and business modeling, local graph storage with embedded KuzuDB by default, and expanded LLM provider support.
+> Built on a fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish) — adapted for business scenario modeling, local graph storage, and expanded LLM provider support.
 
 ## What it does
 
@@ -22,6 +22,7 @@ A swarm intelligence prediction engine designed for simulating business scenario
 | **Graph database** | Hosted graph service | Local KuzuDB (embedded, free) |
 | **Entity extraction** | Managed extraction pipeline | LLM-based extraction (uses your own model) |
 | **Auth** | Requires API keys | Can use Claude Code or Codex CLI subscriptions (no separate API cost) |
+| **MCP tools** | N/A | Agents can call external tools (DBs, APIs) via MCP during simulation |
 
 ## Quick start
 
@@ -116,7 +117,9 @@ backend/
       graph_tools.py       Search, interview, and analysis tools
     utils/
       llm_client.py        Multi-provider LLM client (OpenAI/Anthropic/CLI)
-  scripts/         OASIS simulation runner scripts (Slack + Email)
+      mcp_manager.py       MCP client singleton (tool discovery, execution, sync bridge)
+  mcp_servers/             Example / custom MCP tool servers
+  scripts/                 OASIS simulation runner scripts (Slack + Email)
 ```
 
 Workbench session metadata is persisted under `backend/uploads/workbench_sessions/`, and long-running task state is persisted under `backend/uploads/tasks/`.
@@ -128,10 +131,68 @@ The backend is being refactored toward a pi-style shape: one workbench session c
 ```
 Document upload → LLM ontology extraction → Knowledge graph (GraphStorage → KuzuDB by default)
     → Entity filtering → Agent persona generation (Stakeholders, Competitors, etc.)
-    → OASIS behavioral simulation (Slack / Email)
-    → Graph memory updates → Report generation (ReACT agent)
+    → OASIS behavioral simulation (Slack / Email)  ←──  MCP tools (optional)
+    → Graph memory updates → Report generation (ReACT agent)  ←──  MCP tools (optional)
     → Interactive chat with report agent or individual agents
 ```
+
+## MCP tool integration
+
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) lets the simulated agents call external tools — database queries, API lookups, file operations, or any custom capability — during a simulation run or report generation, without changing any agent code.
+
+### How it works
+
+1. An **MCP server** exposes tools over stdio. The included example server (`backend/mcp_servers/example.py`) provides `lookup_sales_data` and `get_weather`; replace or extend it with your own tools.
+2. **MCPManager** (`backend/app/utils/mcp_manager.py`) launches the server as a subprocess, discovers available tools at startup, and exposes them to agents.
+3. During **simulation**, agents see the tool catalog in their system prompt and can invoke tools via an XML `<tool_call>` format. A multi-round loop in `oasis_llm.py` intercepts these calls, executes them through MCP, and feeds results back before the agent's final response.
+4. During **report generation**, the ReACT agent in `report_agent.py` sees MCP tools registered with an `mcp__` prefix alongside the built-in tools (graph search, interview, etc.) and can call them in its reasoning loop.
+
+### Setup
+
+Add these to your `.env`:
+
+```env
+# Enable MCP tool support
+MCP_SERVER_ENABLED=true
+MCP_SERVER_CMD=python3
+MCP_SERVER_ARGS=mcp_servers/example.py
+
+# Optional tuning
+MCP_TOOL_CALL_TIMEOUT=30    # seconds per tool call (default: 30)
+MCP_MAX_TOOL_ROUNDS=3       # max tool-call rounds per LLM turn (default: 3)
+```
+
+### Writing a custom MCP server
+
+Create a Python file that uses the `FastMCP` helper from the MCP SDK:
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("my-tools")
+
+@mcp.tool()
+def query_crm(account_id: str) -> str:
+    """Look up account details in the CRM."""
+    # your logic here
+    return f"Account {account_id}: ..."
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
+```
+
+Then point your `.env` at it:
+
+```env
+MCP_SERVER_CMD=python3
+MCP_SERVER_ARGS=path/to/my_server.py
+```
+
+All tools the server registers are automatically discovered and made available to every simulation agent and the report agent.
+
+### Disabling MCP
+
+Set `MCP_SERVER_ENABLED=false` (or omit it). The simulation and report pipelines fall back to their default behavior with zero overhead.
 
 ## Acknowledgments
 

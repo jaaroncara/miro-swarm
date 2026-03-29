@@ -17,6 +17,35 @@ from .services.graph_storage import JSONStorage, KuzuDBStorage, get_cached_kuzu_
 from .utils.logger import setup_logger, get_logger
 
 
+def _start_mcp_server(logger, verbose: bool = True):
+    """
+    Bootstrap the MCP tool server in a background thread.
+
+    Called once during app startup when MCP_SERVER_ENABLED=true.
+    Because Flask runs a synchronous WSGI server, the async MCP
+    connection is started inside a dedicated daemon thread that
+    keeps its own event loop alive.
+    """
+    import asyncio
+    import threading
+
+    def _run():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            from .utils.mcp_manager import get_mcp_manager
+            mgr = loop.run_until_complete(get_mcp_manager())
+            if verbose:
+                tool_names = [t.name for t in mgr.get_tools()]
+                logger.info(f"MCP server connected — tools: {tool_names}")
+        except Exception as exc:
+            logger.error(f"MCP server failed to start: {exc}")
+
+    thread = threading.Thread(target=_run, name="mcp-bootstrap", daemon=True)
+    thread.start()
+    thread.join(timeout=15)  # wait up to 15 s for first connection
+
+
 def create_app(config_class=Config):
     """Flask application factory function"""
     frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../frontend/dist'))
@@ -56,6 +85,10 @@ def create_app(config_class=Config):
     if should_log_startup:
         logger.info("Simulation process cleanup registered")
         logger.info("Graph storage backend: %s", type(app.extensions["graph_storage"]).__name__)
+
+    # Start MCP tool server if configured
+    if Config.MCP_SERVER_ENABLED:
+        _start_mcp_server(logger, should_log_startup)
     
     # Request logging middleware
     @app.before_request

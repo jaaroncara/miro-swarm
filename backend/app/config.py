@@ -125,6 +125,24 @@ class Config:
     REPORT_AGENT_MAX_REFLECTION_ROUNDS = int(os.environ.get("REPORT_AGENT_MAX_REFLECTION_ROUNDS", "2"))
     REPORT_AGENT_TEMPERATURE = float(os.environ.get("REPORT_AGENT_TEMPERATURE", "0.5"))
 
+    # MCP (Model Context Protocol) tool server config
+    MCP_SERVER_ENABLED = _get_bool_env("MCP_SERVER_ENABLED", False)
+    MCP_SERVER_CMD = os.environ.get("MCP_SERVER_CMD", "")
+    MCP_SERVER_ARGS = tuple(
+        arg.strip()
+        for arg in os.environ.get("MCP_SERVER_ARGS", "").split(",")
+        if arg.strip()
+    )
+    MCP_TOOL_CALL_TIMEOUT = int(os.environ.get("MCP_TOOL_CALL_TIMEOUT", "30"))
+    MCP_MAX_TOOL_ROUNDS = int(os.environ.get("MCP_MAX_TOOL_ROUNDS", "3"))
+
+    # MCP (Model Context Protocol) tool server config
+    MCP_SERVER_ENABLED = _get_bool_env("MCP_SERVER_ENABLED", False)
+    MCP_SERVER_CMD = os.environ.get("MCP_SERVER_CMD", "python")
+    MCP_SERVER_ARGS = [a.strip() for a in os.environ.get("MCP_SERVER_ARGS", "").split(",") if a.strip()]
+    MCP_TOOL_CALL_TIMEOUT = int(os.environ.get("MCP_TOOL_CALL_TIMEOUT", "30"))
+    MCP_MAX_TOOL_ROUNDS = int(os.environ.get("MCP_MAX_TOOL_ROUNDS", "3"))
+
     @classmethod
     def validate(cls):
         """Validate required configuration."""

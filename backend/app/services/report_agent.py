@@ -944,7 +944,12 @@ class ReportAgent:
         self.report_language = _detect_language(simulation_requirement)
         logger.info(f"Detected report language: {self.report_language} (based on simulation requirement)")
 
-        # Tool definitions
+        # MCP manager handle (may be None if MCP is disabled)
+        self._mcp_manager = None
+        self._mcp_tools_desc = ""
+        self._init_mcp()
+
+        # Tool definitions (includes MCP tools if available)
         self.tools = self._define_tools()
 
         # Logger (initialized in generate_report)
@@ -954,9 +959,23 @@ class ReportAgent:
 
         logger.info(f"ReportAgent initialized: graph_id={graph_id}, simulation_id={simulation_id}")
 
+    def _init_mcp(self) -> None:
+        """Initialise MCP manager reference if MCP is enabled."""
+        if not Config.MCP_SERVER_ENABLED:
+            return
+        try:
+            from ..utils.mcp_manager import get_mcp_manager_sync
+            mgr = get_mcp_manager_sync()
+            if mgr is not None and mgr.is_connected and mgr.has_tools():
+                self._mcp_manager = mgr
+                self._mcp_tools_desc = mgr.get_react_tools_description()
+                logger.info(f"Report agent MCP enabled — {len(mgr.get_tools())} external tool(s)")
+        except Exception as exc:
+            logger.warning(f"Could not attach MCP tools to report agent: {exc}")
+
     def _define_tools(self) -> Dict[str, Dict[str, Any]]:
-        """Define available tools"""
-        return {
+        """Define available tools (including dynamically-registered MCP tools)"""
+        tools = {
             "insight_forge": {
                 "name": "insight_forge",
                 "description": TOOL_DESC_INSIGHT_FORGE,
@@ -990,6 +1009,26 @@ class ReportAgent:
                 }
             }
         }
+
+        # --- Dynamically register MCP tools (prefixed with mcp__) ---
+        if self._mcp_manager is not None:
+            for mcp_tool in self._mcp_manager.get_tools():
+                prefixed_name = f"mcp__{mcp_tool.name}"
+                input_schema = mcp_tool.inputSchema if hasattr(mcp_tool, 'inputSchema') else {}
+                props = (input_schema or {}).get("properties", {})
+                param_desc = {}
+                for pname, pschema in props.items():
+                    ptype = pschema.get("type", "any")
+                    pdesc = pschema.get("description", "")
+                    param_desc[pname] = f"{pdesc} ({ptype})" if pdesc else f"({ptype})"
+                tools[prefixed_name] = {
+                    "name": prefixed_name,
+                    "description": mcp_tool.description or "(MCP tool — no description)",
+                    "parameters": param_desc,
+                }
+            logger.info(f"Registered {len(self._mcp_manager.get_tools())} MCP tool(s) in report agent")
+
+        return tools
 
     def _execute_tool(self, tool_name: str, parameters: Dict[str, Any], report_context: str = "") -> str:
         """
@@ -1093,13 +1132,21 @@ class ReportAgent:
                 return json.dumps(result, ensure_ascii=False, indent=2)
 
             else:
-                return f"Unknown tool: {tool_name}. Please use one of: insight_forge, panorama_search, quick_search"
+                # --- MCP tool routing: names prefixed with mcp__ ---
+                if tool_name.startswith("mcp__") and self._mcp_manager is not None:
+                    actual_name = tool_name[len("mcp__"):]
+                    logger.info(f"Routing to MCP tool: {actual_name}")
+                    return self._mcp_manager.call_tool_sync(actual_name, parameters)
+
+                return f"Unknown tool: {tool_name}. Please use one of: {', '.join(self.tools.keys())}"
 
         except Exception as e:
             logger.error(f"Tool execution failed: {tool_name}, error: {str(e)}")
             return f"Tool execution failed: {str(e)}"
 
-    # Set of valid tool names, used for bare JSON fallback parsing validation
+    # Set of valid tool names, used for bare JSON fallback parsing validation.
+    # This is the base set; _parse_tool_calls also accepts any name in self.tools
+    # (which includes dynamically-registered MCP tools).
     VALID_TOOL_NAMES = {"insight_forge", "panorama_search", "quick_search", "interview_agents"}
 
     def _parse_tool_calls(self, response: str) -> List[Dict[str, Any]]:
@@ -1153,7 +1200,9 @@ class ReportAgent:
         """Validate whether the parsed JSON is a valid tool call"""
         # Supports both {"name": ..., "parameters": ...} and {"tool": ..., "params": ...} key names
         tool_name = data.get("name") or data.get("tool")
-        if tool_name and tool_name in self.VALID_TOOL_NAMES:
+        # Accept built-in tools AND any dynamically-registered tool (including MCP)
+        all_valid = self.VALID_TOOL_NAMES | set(self.tools.keys())
+        if tool_name and tool_name in all_valid:
             # Normalize key names to name / parameters
             if "tool" in data:
                 data["name"] = data.pop("tool")
