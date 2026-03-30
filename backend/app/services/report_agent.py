@@ -526,11 +526,11 @@ TOOL_DESC_PANORAMA_SEARCH = """\
 This tool is used to obtain a complete overview of simulation results, especially suitable for understanding event evolution. It will:
 1. Retrieve all relevant nodes and relationships
 2. Distinguish between currently valid facts and historical/expired facts
-3. Help you understand how public opinion evolved
+3. Help you understand how internal sentiment evolved
 
 [Use Cases]
 - Need to understand the complete development trajectory of an event
-- Need to compare public opinion changes across different stages
+- Need to compare employee sentiment changes across different stages
 - Need to obtain comprehensive entity and relationship information
 
 [Return Content]
@@ -554,24 +554,24 @@ TOOL_DESC_INTERVIEW_AGENTS = """\
 [Deep Interview - Real Agent Interview (Dual Platform)]
 Calls the OASIS simulation environment's interview API to conduct real interviews with running simulation Agents!
 This is not an LLM simulation, but calls the actual interview interface to obtain original responses from simulation Agents.
-By default, interviews are conducted simultaneously on both Twitter and Reddit platforms for more comprehensive perspectives.
+By default, interviews are conducted simultaneously across multiple simulated channels for more comprehensive perspectives.
 
 Workflow:
 1. Automatically reads persona files to understand all simulation Agents
-2. Intelligently selects Agents most relevant to the interview topic (e.g., students, media, officials, etc.)
+2. Intelligently selects Agents most relevant to the interview topic (e.g., individual contributors, managers, HR, etc.)
 3. Automatically generates interview questions
 4. Calls the /api/simulation/interview/batch interface for real interviews on both platforms
 5. Integrates all interview results to provide multi-perspective analysis
 
 [Use Cases]
-- Need to understand event perspectives from different roles (What do students think? What does the media think? What do officials say?)
+- Need to understand event perspectives from different roles (What do employees think? What does management think? What do cross-functional teams say?)
 - Need to collect opinions and positions from multiple parties
 - Need to obtain real responses from simulation Agents (from the OASIS simulation environment)
 - Want to make the report more vivid by including "interview transcripts"
 
 [Return Content]
 - Identity information of interviewed Agents
-- Each Agent's interview responses on both Twitter and Reddit platforms
+- Each Agent's interview responses across different internal channels
 - Key quotes (can be directly cited)
 - Interview summary and viewpoint comparison
 
@@ -580,29 +580,32 @@ Workflow:
 # ── Outline Planning Prompt ──
 
 PLAN_SYSTEM_PROMPT = """\
-You are an expert Corporate Strategy & Organization Alignment Analyst with a "God's-eye view" of a simulated corporate world — you can perceive every employee's behavior, cross-functional discussions, and interactions within the internal simulation (Slack, Email).
+You are an expert Business Strategy & Organization Alignment Analyst with a "bird's-eye view" of a simulated business organization — you can perceive every employee's behavior, cross-functional discussions, and interactions within the internal simulation (Slack, Email).
 
 [Core Concept]
 We have built a simulated digital business environment and injected a specific "simulation requirement" as a potential business change. The evolution results of the simulated organization represent predictions of how the business will react to this change. What you are observing is not "experimental data" but a "rehearsal of the business future."
 
 [Your Task]
 Write a "Change Management & Organizational Impact Report" that answers:
-1. Under the business conditions we set, how did the organization react?
+1. Under the business conditions we set, how did the organization react? What key actions took place?
 2. How did various business units (Finance, Sales, Marketing, etc.) align or conflict?
 3. What noteworthy business risks, communication breakdowns, and opportunities does this simulation reveal?
+4. What concrete, actionable steps should the real business take to mitigate risks and capitalize on these predictions?
 
 [Report Positioning]
 - This is a simulation-based organizational impact report, revealing "if we implement this business change, what will the organization look like"
 - Focus on prediction results: cross-functional alignment, department reactions, operational risks, and adoption resistance
 - Agent behaviors and statements in the simulated world are predictions of future employee and team behavior
+- It must conclude with actionable, concrete recommendations for the business
 - This is NOT an analysis of real-world external public opinion
 - This is NOT a generic social media overview
 
 [Section Count Limits]
-- Minimum 2 sections, maximum 5 sections
+- Minimum 3 sections, maximum 6 sections
 - No sub-sections needed; each section should contain complete content directly
 - Content should be concise, focusing on core prediction findings
 - Section structure is designed by you based on the prediction results
+- The final section MUST be dedicated to Actionable Recommendations
 
 Please output the report outline in JSON format as follows:
 {
@@ -616,7 +619,7 @@ Please output the report outline in JSON format as follows:
     ]
 }
 
-Note: The sections array must contain at least 2 and at most 5 elements!"""
+Note: The sections array must contain at least 3 and at most 6 elements, and the final section MUST explicitly be titled "Actionable Recommendations" or similar!"""
 
 PLAN_USER_PROMPT_TEMPLATE = """\
 [Prediction Scenario Setup]
@@ -631,19 +634,19 @@ The variable injected into the simulated world (simulation requirement): {simula
 [Sample of Future Facts Predicted by the Simulation]
 {related_facts_json}
 
-Please examine this future rehearsal from a "God's-eye view":
+Please examine this future rehearsal from a "bird's-eye view":
 1. Under the conditions we set, what state did the future present?
 2. How did various population groups (Agents) react and act?
 3. What noteworthy future trends does this simulation reveal?
 
 Design the most appropriate report section structure based on the prediction results.
 
-[Reminder] Report section count: minimum 2, maximum 5. Content should be concise and focused on core prediction findings."""
+[Reminder] Report section count: minimum 3, maximum 6. Content should be concise and focused on core prediction findings. The final section MUST be dedicated to Actionable Recommendations!"""
 
 # ── Section Generation Prompt ──
 
 SECTION_SYSTEM_PROMPT_TEMPLATE = """\
-You are an expert Corporate Strategy Analyst, currently writing a section of a Change Management & Organizational Impact Report.
+You are an expert Business Strategy & Organization Alignment Analyst, currently writing a section of a Change Management & Organizational Impact Report.
 
 Report Title: {report_title}
 Report Summary: {report_summary}
@@ -659,7 +662,7 @@ The simulated business world is a rehearsal of organizational reactions. We inje
 Agent (Employee/Team) behaviors and interactions in the simulation (Slack, Email) are predictions of how the actual business units will behave.
 
 Your task is to:
-- Reveal what happened across departments under the set conditions
+- Reveal what happened across departments under the set conditions (summarize actions taken by teams or employees)
 - Predict how various business units and employees (Agents) reacted and acted
 - Discover noteworthy business risks, structural bottlenecks, and alignment opportunities
 
@@ -671,7 +674,7 @@ DO focus on "how will the company adapt" — the simulation results ARE the pred
 ═══════════════════════════════════════════════════════════════
 
 1. [Must invoke tools to observe the simulated world]
-   - You are observing a rehearsal of the future from a "God's-eye view"
+   - You are observing a rehearsal of the future from a "bird's-eye view"
    - All content must come from events and Agent behaviors in the simulated world
    - Do NOT use your own knowledge to write report content
    - Each section must invoke tools at least 3 times (maximum 5 times) to observe the simulated world, which represents the future
@@ -711,20 +714,20 @@ DO focus on "how will the company adapt" — the simulation results ARE the pred
 
 [Correct Example]
 ```
-This section analyzes the public opinion dynamics of the event. Through in-depth analysis of simulation data, we found...
+This section analyzes the cross-departmental communication dynamics. Through in-depth analysis of simulation data, we found...
 
-**Initial Ignition Phase**
+**Initial Announcement Phase**
 
-Weibo served as the primary venue for public opinion, bearing the core function of initial information dissemination:
+Slack served as the primary venue for early discussions, bearing the core function of initial information dissemination:
 
-> "Weibo contributed 68% of the initial voice volume..."
+> "The engineering channel contributed 68% of the initial concerns..."
 
-**Emotion Amplification Phase**
+**Resistance Amplification Phase**
 
-The Douyin platform further amplified the event's impact:
+Cross-departmental email threads further amplified the policy's impact:
 
-- Strong visual impact
-- High emotional resonance
+- Strong pushback on resources
+- High concern about timelines
 ```
 
 [Incorrect Example]
@@ -785,20 +788,21 @@ Strictly prohibited:
 
    Correct format:
    ```
-   The school's response was considered lacking in substance.
+   Leadership's response was considered lacking in substance.
 
-   > "The school's response pattern appeared rigid and slow in the fast-paced social media environment."
+   > "Management's response pattern appeared rigid and slow in the fast-paced internal Slack environment."
 
-   This assessment reflects widespread public dissatisfaction.
+   This assessment reflects widespread employee dissatisfaction.
    ```
 
    Incorrect format:
    ```
-   The school's response was considered lacking in substance. > "The school's response pattern..." This assessment reflects...
+   Leadership's response was considered lacking in substance. > "Management's response pattern..." This assessment reflects...
    ```
 5. Maintain logical coherence with other sections
 6. [Avoid Repetition] Carefully read the completed sections below; do not repeat the same information
-7. [Emphasis] Do not add any headings! Use **bold** as a substitute for sub-section titles"""
+7. [Emphasis] Do not add any headings! Use **bold** as a substitute for sub-section titles
+8. [Actionable Recommendations] If you are writing the final "Actionable Recommendations" section (or any section focused on recommendations), you MUST provide clear, practical, and actionable steps based on the simulation findings. Tell the business exactly what to do to mitigate risks or capitalize on opportunities. Each step MUST use a **Bolded Summary** followed by a short list of specific sub-points explaining the implementation."""
 
 SECTION_USER_PROMPT_TEMPLATE = """\
 Completed section content (please read carefully to avoid repetition):
@@ -1229,10 +1233,7 @@ class ReportAgent:
         section_index: int
     ) -> str:
         """
-        Check if generated content drifted to a different language.
-
-        For English reports, if content contains >5% CJK characters, attempt one regeneration with stricter prompt.
-
+        Check for language drift in the generated content and attempt regeneration if necessary
         Args:
             content: Section content to check
             section_title: Title of the section

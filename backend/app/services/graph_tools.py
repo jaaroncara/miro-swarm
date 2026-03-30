@@ -283,7 +283,7 @@ class PanoramaResult:
 class AgentInterview:
     """Single agent's interview result"""
     agent_name: str
-    agent_role: str  # Role type (e.g., student, teacher, media, etc.)
+    agent_role: str  # Role type (e.g., developer, manager, HR, etc.)
     agent_bio: str  # Biography
     question: str  # Interview question
     response: str  # Interview response
@@ -1306,13 +1306,13 @@ Return the sub-question list in JSON format."""
         [Important] This feature requires the simulation environment to be running (OASIS environment not shut down)
 
         [Use Cases]
-        - Need to understand event perspectives from different roles
+        - Need to understand event perspectives and actions taken from different roles
         - Need to collect opinions and viewpoints from multiple parties
         - Need to obtain real responses from simulated agents (not LLM-simulated)
 
         Args:
             simulation_id: Simulation ID (used to locate profile files and call interview API)
-            interview_requirement: Interview requirement description (unstructured, e.g., "understand students' views on the event")
+            interview_requirement: Interview requirement description (unstructured, e.g., "understand employees' views on the policy")
             simulation_requirement: Simulation requirement background (optional)
             max_agents: Maximum number of agents to interview
             custom_questions: Custom interview questions (optional, auto-generated if not provided)

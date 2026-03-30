@@ -170,7 +170,7 @@ Based on the above content, design entity types and relationship types suitable 
 1. You must output exactly 10 entity types
 2. The last 2 must be fallback types: Person (individual fallback) and Organization (organization fallback)
 3. The first 8 are specific types designed based on the text content
-4. All entity types must be real-world agents capable of posting on social media; abstract concepts are not allowed
+4. All entity types must be real-world agents capable of posting on internal channels (e.g., Slack, Email); abstract concepts are not allowed
 5. Attribute names cannot use reserved words such as name, uuid, group_id, etc.; use full_name, org_name, etc. instead
 """
 
