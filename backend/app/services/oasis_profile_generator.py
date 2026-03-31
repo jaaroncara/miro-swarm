@@ -607,7 +607,7 @@ class OasisProfileGenerator:
 
     def _get_system_prompt(self, is_individual: bool) -> str:
         """Get the system prompt"""
-        base_prompt = "You are an expert in generating business and corporate employee profiles. Generate detailed, realistic personas for organizational decision-making simulations that reconstruct corporate environments (like Slack or internal forums) as closely as possible. You must return valid JSON format, and all string values must not contain unescaped newline characters. Use English."
+        base_prompt = "You are an expert in generating business and corporate employee profiles. Generate detailed, realistic personas for organizational decision-making simulations that reconstruct corporate environments (like Slack or internal forums) as closely as possible. Each persona should portray someone who naturally reaches for available tools (database queries, web searches, data lookups) to ground their statements in concrete evidence rather than relying solely on opinion. You must return valid JSON format, and all string values must not contain unescaped newline characters. Use English."
         return base_prompt
 
     def _build_individual_persona_prompt(
@@ -645,6 +645,7 @@ Please generate JSON containing the following fields:
    - Stances and business opinions (attitudes toward strategic company topics, changes, risk tolerance)
    - Unique characteristics (workplace catchphrases, operational habits)
    - Professional memory (an important part of the persona, introduce this individual's connection to previous business decisions, as well as their actions during critical projects)
+   - Tool-usage behavior (this person proactively uses available tools — such as database queries, web searches, or data lookups — to retrieve concrete data and evidence before making claims or sharing opinions; describe how and when they tend to reach for external tools to enrich their contributions)
 3. age: Age as a number (must be an integer)
 4. gender: Gender, must be in English: "male" or "female"
 5. mbti: MBTI type (e.g., INTJ, ENFP, etc.)
@@ -695,6 +696,7 @@ Please generate JSON containing the following fields:
    - Stances and attitudes (official department positions on core business topics, approach to handling cross-functional alignment)
    - Special notes (represented team culture, operational processes)
    - Department memory (an important part of the persona, introduce this team's connection to past business initiatives, as well as its existing actions and reactions during company milestones)
+   - Tool-usage behavior (this team proactively uses available tools — such as database queries, web searches, or data lookups — to retrieve concrete data and evidence before publishing updates or taking positions; describe how the team account leverages external tools to support its communications with real data)
 3. age: Fixed at 30 (virtual age for team accounts)
 4. gender: Fixed as "other" (team accounts use "other" to indicate non-individual)
 5. mbti: MBTI type, used to describe the department style, e.g., ISTJ for Finance, ENFJ for Marketing
@@ -724,7 +726,7 @@ Important:
         if entity_type_lower in ["analyst", "specialist", "coordinator"]:
             return {
                 "bio": f"{entity_type} focused on execution and daily operations.",
-                "persona": f"{entity_name} is a {entity_type.lower()} who is actively engaged in operational tasks. They enjoy sharing data-driven perspectives and collaborating with peers.",
+                "persona": f"{entity_name} is a {entity_type.lower()} who is actively engaged in operational tasks. They enjoy sharing data-driven perspectives and collaborating with peers. When tools are available (such as database queries or web searches), they proactively use them to retrieve concrete data before contributing to discussions.",
                 "age": random.randint(22, 35),
                 "gender": random.choice(["male", "female"]),
                 "mbti": random.choice(self.MBTI_TYPES),
@@ -736,7 +738,7 @@ Important:
         elif entity_type_lower in ["executive", "director", "manager"]:
             return {
                 "bio": f"Leader and strategic decision-maker.",
-                "persona": f"{entity_name} is a {entity_type.lower()} who drives business strategy and aligns teams. They focus on high-level goals and mitigate business risks.",
+                "persona": f"{entity_name} is a {entity_type.lower()} who drives business strategy and aligns teams. They focus on high-level goals and mitigate business risks. They leverage any available tools (such as database queries, data lookups, or web searches) to back their strategic positions with real data and evidence.",
                 "age": random.randint(35, 60),
                 "gender": random.choice(["male", "female"]),
                 "mbti": random.choice(["ENTJ", "INTJ", "ESTJ", "ISTJ"]),
@@ -748,7 +750,7 @@ Important:
         elif entity_type_lower in ["marketing", "communications", "hr"]:
             return {
                 "bio": f"Official channel for {entity_name}. Updates and employee engagement.",
-                "persona": f"{entity_name} facilitates internal communications and builds company culture. They share timely updates on company-wide initiatives.",
+                "persona": f"{entity_name} facilitates internal communications and builds company culture. They share timely updates on company-wide initiatives. When tools are available, they use them to pull the latest data and metrics to enrich their announcements and communications.",
                 "age": 30,  # Virtual age for organizations
                 "gender": "other",  # Organizations use "other"
                 "mbti": "ENFJ",  # Organization style: communicative and people-focused
@@ -760,7 +762,7 @@ Important:
         elif entity_type_lower in ["department", "team", "committee", "board"]:
             return {
                 "bio": f"Official account of {entity_name}.",
-                "persona": f"{entity_name} is a functional unit that communicates official directives, project updates, and engages with cross-functional partners.",
+                "persona": f"{entity_name} is a functional unit that communicates official directives, project updates, and engages with cross-functional partners. They routinely use available tools (database queries, data lookups, web searches) to gather supporting data before issuing updates or directives.",
                 "age": 30,  # Virtual age for organizations
                 "gender": "other",  # Organizations use "other"
                 "mbti": "ISTJ",  # Organization style: rigorous and conservative
@@ -773,7 +775,7 @@ Important:
             # Default persona
             return {
                 "bio": entity_summary[:150] if entity_summary else f"{entity_type}: {entity_name}",
-                "persona": entity_summary or f"{entity_name} is a {entity_type.lower()} participating in social discussions.",
+                "persona": entity_summary or f"{entity_name} is a {entity_type.lower()} participating in social discussions. When external tools are available, they use them to look up relevant information before responding.",
                 "age": random.randint(25, 50),
                 "gender": random.choice(["male", "female"]),
                 "mbti": random.choice(self.MBTI_TYPES),

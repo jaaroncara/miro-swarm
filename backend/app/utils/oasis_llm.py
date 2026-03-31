@@ -289,8 +289,11 @@ def get_oasis_semaphore(config: Dict[str, Any], use_boost: bool = False) -> int:
 # XML format that we can regex-parse from CLI providers that don't support
 # native OpenAI function-calling JSON.
 MCP_TOOL_SYSTEM_ADDENDUM = """
-You have access to external tools.  When you need real-world data to support
-your response, you SHOULD invoke a tool BEFORE composing your final answer.
+You have access to external tools.  You MUST actively consider using them on
+every turn.  Before composing your response, ask yourself: "Could any of my
+available tools provide concrete data, evidence, or context that would make
+my response more grounded and valuable?"  If the answer is yes, invoke the
+tool FIRST and incorporate the results into your reply.
 
 To call a tool, output a single <tool_call> block anywhere in your reply:
 
@@ -301,6 +304,14 @@ To call a tool, output a single <tool_call> block anywhere in your reply:
 After each tool call you will receive an <observation> with the result.
 You may call up to {max_rounds} tools per turn.  When you have all the data
 you need, write your final answer normally (no <tool_call> block).
+
+Guidelines for tool usage:
+- Prefer using a tool over relying on memory or assumptions when factual data
+  is available.
+- If a tool can verify a claim, look up a metric, or fetch recent information,
+  call it.
+- Cite or reference the data you retrieved from tools in your response so
+  others can see the evidence behind your statements.
 
 Available tools:
 {tool_descriptions}
