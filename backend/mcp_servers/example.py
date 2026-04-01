@@ -14,8 +14,12 @@ Or directly:
 
 from mcp.server.fastmcp import FastMCP
 import math
+import os
 import statistics
 from typing import List
+from langchain_tavily import TavilySearch
+
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
 mcp = FastMCP("example-tools")
 
@@ -132,6 +136,18 @@ def calculate_mode(numbers: List[float]) -> str:
         return str(statistics.mode(numbers))
     except statistics.StatisticsError:
         return "Error: No unique mode."
+    
+@mcp.tool()
+def basic_news_search(query):
+    """Search the web for recent news using the Tavily Web Search API."""
+    tavily = TavilySearch(max_results=2, topic="news", tavily_api_key=TAVILY_API_KEY)
+    return {"messages": tavily.invoke(query)}
+    
+@mcp.tool()
+def basic_web_search(query):
+    """Search the web for general topics using the Tavily Web Search API."""
+    tavily = TavilySearch(max_results=2, topic="general", tavily_api_key=TAVILY_API_KEY)
+    return {"messages": tavily.invoke(query)}
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")

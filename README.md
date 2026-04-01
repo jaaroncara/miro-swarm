@@ -16,7 +16,7 @@ A swarm intelligence prediction engine designed for simulating business scenario
 
 | Area | Upstream | This fork |
 |------|----------|-----------|
-| **Use Case** | Social media prediction | Business scenario and outcome modeling |
+| **Use Case** | Decision prediction | Business scenario and outcome modeling |
 | **Language** | English Language UI + prompts | Full English (60+ files translated) |
 | **LLM providers** | OpenAI, Anthropic, Claude CLI, Codex CLI |
 | **Graph database** | Hosted graph service | Local KuzuDB (embedded, free) |

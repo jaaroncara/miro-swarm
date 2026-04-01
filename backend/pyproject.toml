@@ -30,6 +30,9 @@ dependencies = [
     "charset-normalizer>=3.0.0",
     "chardet>=5.0.0",
 
+    # Web search
+    "langchain-tavily>=0.2.0",
+
     # Utilities
     "python-dotenv>=1.0.0",
     "waitress>=3.0.0",
