@@ -24,7 +24,7 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 mcp = FastMCP("example-tools")
 
 
-# ---------- Tool 1: Sales Database Lookup ----------
+# ---------- Tool 1: Business Database Lookup ----------
 
 _MOCK_SALES = {
     ("north america", "q1"): {"revenue": 12500000, "units": 45000, "growth": "+8%"},
@@ -35,26 +35,83 @@ _MOCK_SALES = {
     ("latin america", "q2"): {"revenue": 8400000, "units": 31000, "growth": "+10%"},
 }
 
+_MOCK_FINANCE = {
+    ("north america", "q1"): {"ebitda": 3200000, "margin": "25.6%", "opex": 4100000},
+    ("north america", "q2"): {"ebitda": 3800000, "margin": "26.7%", "opex": 4200000},
+    ("canada", "q1"): {"ebitda": 2100000, "margin": "21.4%", "opex": 2800000},
+    ("canada", "q2"): {"ebitda": 2300000, "margin": "22.7%", "opex": 2850000},
+    ("latin america", "q1"): {"ebitda": 1500000, "margin": "19.7%", "opex": 2100000},
+    ("latin america", "q2"): {"ebitda": 1800000, "margin": "21.4%", "opex": 2150000},
+}
+
+_MOCK_MARKETING = {
+    ("north america", "q1"): {"campaigns": 12, "reach": "45M", "engagement": "4.2%"},
+    ("north america", "q2"): {"campaigns": 15, "reach": "52M", "engagement": "4.8%"},
+    ("canada", "q1"): {"campaigns": 8, "reach": "12M", "engagement": "3.5%"},
+    ("canada", "q2"): {"campaigns": 10, "reach": "14M", "engagement": "3.9%"},
+    ("latin america", "q1"): {"campaigns": 6, "reach": "18M", "engagement": "5.1%"},
+    ("latin america", "q2"): {"campaigns": 8, "reach": "22M", "engagement": "5.4%"},
+}
+
+_MOCK_CONSUMER = {
+    ("north america", "q1"): {"active_users": 2500000, "churn_rate": "2.1%", "nps": 68},
+    ("north america", "q2"): {"active_users": 2800000, "churn_rate": "1.8%", "nps": 71},
+    ("canada", "q1"): {"active_users": 850000, "churn_rate": "2.4%", "nps": 62},
+    ("canada", "q2"): {"active_users": 920000, "churn_rate": "2.2%", "nps": 65},
+    ("latin america", "q1"): {"active_users": 1200000, "churn_rate": "3.1%", "nps": 58},
+    ("latin america", "q2"): {"active_users": 1400000, "churn_rate": "2.9%", "nps": 61},
+}
+
+_MOCK_PAID_MEDIA = {
+    ("north america", "q1"): {"spend": 1500000, "cpa": "$32", "roas": "2.4x"},
+    ("north america", "q2"): {"spend": 1800000, "cpa": "$28", "roas": "2.8x"},
+    ("canada", "q1"): {"spend": 600000, "cpa": "$24", "roas": "2.1x"},
+    ("canada", "q2"): {"spend": 700000, "cpa": "$22", "roas": "2.3x"},
+    ("latin america", "q1"): {"spend": 400000, "cpa": "$18", "roas": "3.1x"},
+    ("latin america", "q2"): {"spend": 500000, "cpa": "$16", "roas": "3.5x"},
+}
+
+_DATASETS = {
+    "sales": _MOCK_SALES,
+    "finance": _MOCK_FINANCE,
+    "marketing": _MOCK_MARKETING,
+    "consumer": _MOCK_CONSUMER,
+    "paid_media": _MOCK_PAID_MEDIA,
+}
+
 
 @mcp.tool()
-def lookup_sales_data(region: str, quarter: str) -> str:
+async def lookup_business_data(dataset: str, region: str, quarter: str) -> str:
     """
-    Query the sales database for revenue, units sold, and YoY growth.
+    Query business datasets for metrics across various domains.
 
     Args:
+        dataset: The dataset to query (e.g., "sales", "finance", "marketing", "consumer", "paid_media")
         region: Geographic region (e.g. "North America", "Canada", "Latin America")
         quarter: Fiscal quarter (e.g. "Q1", "Q2")
     """
     key = (region.lower().strip(), quarter.lower().strip())
-    data = _MOCK_SALES.get(key)
+    dataset_key = dataset.lower().strip()
+    
+    target_dataset = _DATASETS.get(dataset_key)
+    if target_dataset is None:
+        return f"Error: Dataset '{dataset}' not found. Available datasets: {', '.join(_DATASETS.keys())}"
+        
+    data = target_dataset.get(key)
     if data is None:
-        return f"No sales data found for region='{region}', quarter='{quarter}'."
-    return (
-        f"Sales data for {region} {quarter}:\n"
-        f"  Revenue:  ${data['revenue']:,}\n"
-        f"  Units:    {data['units']:,}\n"
-        f"  YoY Growth: {data['growth']}"
-    )
+        return f"No {dataset} data found for region='{region}', quarter='{quarter}'."
+        
+    result = f"{dataset.replace('_', ' ').title()} data for {region} {quarter}:\n"
+    for k, v in data.items():
+        # Add basic formatting for currency/numbers if applicable
+        if isinstance(v, (int, float)) and any(term in k for term in ["revenue", "spend", "ebitda", "opex"]):
+            result += f"  {k.replace('_', ' ').title()}: ${v:,}\n"
+        elif isinstance(v, (int, float)):
+            result += f"  {k.replace('_', ' ').title()}: {v:,}\n"
+        else:
+            result += f"  {k.replace('_', ' ').title()}: {v}\n"
+            
+    return result
 
 
 # ---------- Tool 2: Calculator ----------
