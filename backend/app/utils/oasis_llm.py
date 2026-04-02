@@ -31,6 +31,149 @@ DEFAULT_API_SEMAPHORE = 30
 DEFAULT_CLI_SEMAPHORE = 3
 
 
+# ═══════════════════════════════════════════════════════════════
+# Business-oriented system prompt overrides for OASIS agents
+#
+# The upstream OASIS framework frames agents as "Twitter users" and
+# "Reddit users", which causes LLMs to produce short social-media-style
+# output.  For business simulation we replace those with Slack channel
+# and internal email framing so agents write substantive, professional
+# messages at realistic lengths.
+#
+# These are applied as monkey-patches on UserInfo so every simulation
+# script that imports oasis_llm gets the override automatically,
+# without modifying vendored code in .venv.
+# ═══════════════════════════════════════════════════════════════
+
+def _business_slack_system_message(self) -> str:
+    """Slack channel system prompt (replaces Twitter framing)."""
+    name_string = ""
+    description_string = ""
+    description = ""
+    if self.name is not None:
+        name_string = f"Your name is {self.name}."
+    if self.profile is None:
+        description = name_string
+    elif "other_info" not in self.profile:
+        description = name_string
+    elif "user_profile" in self.profile.get("other_info", {}):
+        if self.profile["other_info"]["user_profile"] is not None:
+            user_profile = self.profile["other_info"]["user_profile"]
+            description_string = f"Your profile: {user_profile}."
+            description = f"{name_string}\n{description_string}"
+        else:
+            description = name_string
+    else:
+        description = name_string
+
+    return f"""
+# OBJECTIVE
+You are a corporate professional communicating through internal Slack channels.
+You will be presented with messages from colleagues. After reviewing them,
+choose actions from the available functions.
+
+# COMMUNICATION GUIDELINES
+- Write substantive, professional Slack messages (typically 100–300 words).
+- Be direct and actionable — include specific data points, recommendations,
+  or questions when relevant.
+- Use your professional expertise and departmental perspective to contribute
+  meaningfully to the discussion.
+- You may use bullet points, numbered lists, or short paragraphs for clarity.
+- Reference concrete metrics, project details, or business context you know.
+- Match your tone to your role and seniority level — executives communicate
+  strategically, analysts lead with data, managers focus on coordination.
+- Do not write one-liner tweets. Every message should add professional value.
+- When available tools (database queries, data lookups, etc.) could strengthen
+  your message with real data, use them before responding.
+
+# SELF-DESCRIPTION
+Your actions and communication style should be consistent with your
+professional identity and personality.
+{description}
+
+# RESPONSE METHOD
+Please perform actions by tool calling.
+"""
+
+
+def _business_email_system_message(self) -> str:
+    """Internal email system prompt (replaces Reddit framing)."""
+    name_string = ""
+    description_string = ""
+    description = ""
+    if self.name is not None:
+        name_string = f"Your name is {self.name}."
+    if self.profile is None:
+        description = name_string
+    elif "other_info" not in self.profile:
+        description = name_string
+    elif "user_profile" in self.profile.get("other_info", {}):
+        if self.profile["other_info"]["user_profile"] is not None:
+            user_profile = self.profile["other_info"]["user_profile"]
+            description_string = f"Your profile: {user_profile}."
+            description = f"{name_string}\n{description_string}"
+        else:
+            description = name_string
+    else:
+        description = name_string
+
+    # Append demographic/professional details if available
+    if self.profile and "other_info" in self.profile:
+        other = self.profile["other_info"]
+        demo_parts = []
+        if other.get("gender"):
+            demo_parts.append(f"{other['gender']}")
+        if other.get("age"):
+            demo_parts.append(f"age {other['age']}")
+        if other.get("mbti"):
+            demo_parts.append(f"MBTI personality type {other['mbti']}")
+        if other.get("country"):
+            demo_parts.append(f"based in {other['country']}")
+        if demo_parts:
+            description += f"\nYou are a professional — {', '.join(demo_parts)}."
+
+    return f"""
+# OBJECTIVE
+You are a corporate professional communicating through internal email.
+You will be presented with email threads and messages from colleagues.
+After reviewing them, choose actions from the available functions.
+
+# COMMUNICATION GUIDELINES
+- Write detailed, professional internal emails (typically 200–500 words).
+- Structure emails clearly: greeting, context/purpose, detailed body with
+  analysis or reasoning, action items or next steps, and a professional
+  sign-off.
+- Provide thorough analysis and supporting evidence for your positions.
+- Reference specific data, metrics, project timelines, or business outcomes
+  when relevant to your expertise.
+- Address multiple aspects of complex topics — do not oversimplify.
+- Tailor depth and formality to the audience (executive summaries for
+  leadership, detailed breakdowns for peers or direct reports).
+- Include clear recommendations or questions to move discussions forward.
+- When available tools (database queries, data lookups, etc.) could provide
+  concrete evidence or data for your email, use them before composing your
+  response.
+
+# SELF-DESCRIPTION
+Your communication style and professional opinions should be consistent
+with your identity and expertise.
+{description}
+
+# RESPONSE METHOD
+Please perform actions by tool calling.
+"""
+
+
+# Apply overrides at import time so all simulation scripts get business framing
+try:
+    from oasis.social_platform.config import UserInfo
+    UserInfo.to_twitter_system_message = _business_slack_system_message
+    UserInfo.to_reddit_system_message = _business_email_system_message
+    logger.info("Applied business-oriented system prompts (Slack/Email) to OASIS UserInfo")
+except ImportError:
+    pass  # OASIS not installed; overrides not needed
+
+
 @dataclass
 class ResolvedLLMConfig:
     """Resolved LLM settings for simulation-time use."""

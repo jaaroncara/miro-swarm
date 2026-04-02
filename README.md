@@ -22,7 +22,7 @@ A swarm intelligence prediction engine designed for simulating business scenario
 | **Graph database** | Hosted graph service | Local KuzuDB (embedded, free) |
 | **Entity extraction** | Managed extraction pipeline | LLM-based extraction (uses your own model) |
 | **Auth** | Requires API keys | Can use Claude Code or Codex CLI subscriptions (no separate API cost) |
-| **MCP tools** | N/A | Agents can call external tools (DBs, APIs) via MCP during simulation |
+| **MCP tools** | Take real actions | Agents can call external tools (DBs, APIs) via MCP during simulation |
 
 ## Quick start
 
