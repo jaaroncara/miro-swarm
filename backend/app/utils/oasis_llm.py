@@ -7,6 +7,7 @@ before returning the final natural-language answer to OASIS.
 """
 
 import asyncio
+import hashlib
 import json
 import math
 import os
@@ -453,6 +454,17 @@ class MCPOpenAIModel(OpenAIModel):
             # Fast path — no MCP overhead
             return super()._request_chat_completion(messages, tools)
 
+        # Per-agent tool routing: select only the best-fit tools
+        mgr = _get_mcp_manager_if_enabled()
+        if mgr is not None:
+            selected_names = _tool_router.select_tools(messages, mgr.get_tools())
+            if selected_names is not None:
+                name_set = set(selected_names)
+                mcp_schemas = [s for s in mcp_schemas if s["function"]["name"] in name_set]
+                mcp_names = {s["function"]["name"] for s in mcp_schemas}
+                if not mcp_schemas:
+                    return super()._request_chat_completion(messages, tools)
+
         # Merge MCP tool schemas with any OASIS-native tools
         merged_tools = list(tools or []) + mcp_schemas
 
@@ -654,6 +666,130 @@ def _get_mcp_manager_if_enabled():
     return None
 
 
+# ═══════════════════════════════════════════════════════════════
+# Per-Agent MCP Tool Routing
+# ═══════════════════════════════════════════════════════════════
+
+MCP_MAX_TOOLS_PER_AGENT = int(os.environ.get('MCP_MAX_TOOLS_PER_AGENT', '3'))
+
+
+class ToolRouter:
+    """Selects the best-fit MCP tools for each agent via a one-shot LLM call.
+
+    Results are cached by agent identity (hashed system message) so each
+    unique agent profile pays the routing cost only once per simulation run.
+    When routing is disabled (MCP_MAX_TOOLS_PER_AGENT <= 0) all tools are
+    returned.  On any failure the agent receives NO tools (strict filtering).
+    """
+
+    def __init__(self) -> None:
+        self._cache: Dict[str, List[str]] = {}
+        self._llm: Optional[LLMClient] = None
+
+    def _get_llm(self) -> LLMClient:
+        if self._llm is None:
+            self._llm = LLMClient()
+        return self._llm
+
+    @staticmethod
+    def _extract_agent_key(messages: List[Dict[str, Any]]) -> Optional[str]:
+        """Hash the first system message to get a stable per-agent cache key."""
+        for msg in messages:
+            if msg.get('role') == 'system':
+                content = str(msg.get('content', ''))
+                if content:
+                    return hashlib.sha256(content.encode()).hexdigest()[:16]
+        return None
+
+    def select_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        all_tools: list,
+    ) -> List[str]:
+        """Return a list of tool names best suited for the agent in *messages*.
+
+        *all_tools* should be the raw MCP Tool objects from MCPManager.get_tools().
+        Returns at most ``MCP_MAX_TOOLS_PER_AGENT`` names.  On failure returns
+        an empty list (strict = agent gets no tools).
+        """
+        max_tools = MCP_MAX_TOOLS_PER_AGENT
+        if max_tools <= 0:
+            # Routing disabled — return all tool names
+            return [t.name for t in all_tools]
+
+        if not all_tools:
+            return []
+
+        agent_key = self._extract_agent_key(messages)
+        if agent_key is None:
+            return []  # no system message → no tools
+
+        if agent_key in self._cache:
+            return self._cache[agent_key]
+
+        # Build a compact agent description from the system message
+        agent_desc = ""
+        for msg in messages:
+            if msg.get('role') == 'system':
+                agent_desc = str(msg.get('content', ''))[:500]
+                break
+
+        # Build numbered tool catalog
+        catalog_lines = []
+        valid_names = set()
+        for i, tool in enumerate(all_tools, 1):
+            name = tool.name
+            desc = (tool.description or '')[:120]
+            catalog_lines.append(f"{i}. {name} — {desc}")
+            valid_names.add(name)
+        catalog = "\n".join(catalog_lines)
+
+        prompt = (
+            f"Given this agent description:\n---\n{agent_desc}\n---\n\n"
+            f"And these available tools:\n{catalog}\n\n"
+            f"Select up to {max_tools} tools that would be most useful for "
+            f"this agent's role and expertise. Return ONLY a JSON array of "
+            f"tool name strings, e.g. [\"tool_a\", \"tool_b\"].\n"
+            f"If no tools are relevant, return an empty array []."
+        )
+
+        try:
+            llm = self._get_llm()
+            raw = llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=256,
+            )
+            # Extract JSON array from the response
+            import re as _re
+            match = _re.search(r'\[.*?\]', raw or '', _re.DOTALL)
+            if not match:
+                logger.warning("ToolRouter: no JSON array in LLM response")
+                self._cache[agent_key] = []
+                return []
+
+            selected = json.loads(match.group(0))
+            if not isinstance(selected, list):
+                selected = []
+
+            # Validate and cap
+            result = [n for n in selected if isinstance(n, str) and n in valid_names][:max_tools]
+            self._cache[agent_key] = result
+            logger.info(
+                f"ToolRouter: agent {agent_key[:8]}… → "
+                f"{result if result else '(no tools)'}"
+            )
+            return result
+
+        except Exception as exc:
+            logger.warning(f"ToolRouter: LLM call failed ({exc}); agent gets no tools")
+            self._cache[agent_key] = []
+            return []
+
+
+_tool_router = ToolRouter()
+
+
 def _mcp_tool_loop_sync(
     llm: LLMClient,
     messages: List[Dict[str, Any]],
@@ -683,8 +819,27 @@ def _mcp_tool_loop_sync(
             max_tokens=max_tokens,
         )
 
+    # Per-agent tool routing: select only the best-fit tools
+    all_mcp_tools = mgr.get_tools()
+    selected_names = _tool_router.select_tools(messages, all_mcp_tools)
+    if selected_names is not None and not selected_names:
+        # Strict filtering: no relevant tools → skip MCP entirely
+        return llm.chat(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    # Filter tools to only the selected subset
+    if selected_names is not None:
+        name_set = set(selected_names)
+        filtered_tools = [t for t in all_mcp_tools if t.name in name_set]
+    else:
+        filtered_tools = all_mcp_tools
+
     max_rounds = Config.MCP_MAX_TOOL_ROUNDS
-    tool_desc = mgr.get_react_tools_description()
+    from .mcp_manager import _mcp_tools_to_react_description
+    tool_desc = _mcp_tools_to_react_description(filtered_tools)
 
     # Inject tool instructions into the conversation
     mcp_system_msg = MCP_TOOL_SYSTEM_ADDENDUM.format(
