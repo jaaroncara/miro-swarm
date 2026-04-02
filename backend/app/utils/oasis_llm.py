@@ -234,6 +234,153 @@ class CLIModel(OpenAIModel):
         return await asyncio.to_thread(self._request_parse, messages, response_format, tools)
 
 
+# ═══════════════════════════════════════════════════════════════
+# MCPOpenAIModel — native OpenAI function-calling with MCP tools
+# ═══════════════════════════════════════════════════════════════
+
+class MCPOpenAIModel(OpenAIModel):
+    """Thin wrapper around CAMEL's OpenAIModel that injects MCP tools as
+    native OpenAI function-calling schemas and handles the
+    tool_calls → execute → re-prompt loop transparently.
+
+    When MCP is disabled or has no tools, behaviour is identical to the
+    base ``OpenAIModel``.
+    """
+
+    def _get_mcp_tools_and_names(self):
+        """Return (openai_tool_schemas, set_of_mcp_tool_names) or ([], set())."""
+        mgr = _get_mcp_manager_if_enabled()
+        if mgr is None:
+            return [], set()
+        schemas = mgr.get_openai_tools_schema()
+        names = {s["function"]["name"] for s in schemas}
+        return schemas, names
+
+    def _execute_mcp_tool_calls(self, tool_calls, mcp_tool_names):
+        """Execute MCP tool calls and return a list of tool-result messages.
+
+        Non-MCP tool calls (i.e. OASIS-native tools) are skipped so they
+        can be handled by the framework itself.
+        """
+        mgr = _get_mcp_manager_if_enabled()
+        if mgr is None:
+            return []
+
+        tool_messages = []
+        for tc in tool_calls:
+            fn_name = tc.function.name
+            if fn_name not in mcp_tool_names:
+                continue  # not an MCP tool — leave for OASIS
+
+            try:
+                fn_args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                fn_args = {}
+                logger.warning(
+                    f"Failed to parse arguments for MCP tool '{fn_name}': "
+                    f"{tc.function.arguments[:200]}"
+                )
+
+            logger.info(f"MCP tool call: {fn_name}")
+
+            try:
+                result = mgr.call_tool_sync(fn_name, fn_args)
+            except Exception as exc:
+                result = f"Tool error: {exc}"
+                logger.warning(f"MCP tool '{fn_name}' failed: {exc}")
+
+            tool_messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            })
+
+        return tool_messages
+
+    # ------------------------------------------------------------------
+
+    def _request_chat_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]] | None = None,
+    ) -> ChatCompletion:
+        mcp_schemas, mcp_names = self._get_mcp_tools_and_names()
+
+        if not mcp_schemas:
+            # Fast path — no MCP overhead
+            return super()._request_chat_completion(messages, tools)
+
+        # Merge MCP tool schemas with any OASIS-native tools
+        merged_tools = list(tools or []) + mcp_schemas
+
+        max_rounds = Config.MCP_MAX_TOOL_ROUNDS
+        messages = list(messages)  # shallow copy for the loop
+
+        for round_idx in range(max_rounds + 1):  # +1 for the final non-tool turn
+            response = super()._request_chat_completion(messages, merged_tools)
+
+            choice = response.choices[0]
+            assistant_msg = choice.message
+
+            # If the model didn't call any tools we're done
+            if not assistant_msg.tool_calls:
+                return response
+
+            # Check if any of the tool calls target MCP tools
+            mcp_calls = [
+                tc for tc in assistant_msg.tool_calls
+                if tc.function.name in mcp_names
+            ]
+
+            if not mcp_calls:
+                # All tool calls are OASIS-native — return as-is
+                return response
+
+            logger.info(
+                f"MCP tool round {round_idx + 1}/{max_rounds}: "
+                f"{[tc.function.name for tc in mcp_calls]}"
+            )
+
+            # Execute MCP tool calls
+            tool_result_messages = self._execute_mcp_tool_calls(
+                assistant_msg.tool_calls, mcp_names
+            )
+
+            # Build the assistant message dict with tool_calls for the
+            # conversation history
+            tc_dicts = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in assistant_msg.tool_calls
+            ]
+            messages.append({
+                "role": "assistant",
+                "content": assistant_msg.content or "",
+                "tool_calls": tc_dicts,
+            })
+            messages.extend(tool_result_messages)
+
+        # Exhausted rounds — make one final call without tools so the model
+        # produces a natural-language answer
+        logger.warning("MCP tool loop exhausted max rounds; making final call")
+        return super()._request_chat_completion(messages, tools)
+
+    async def _arequest_chat_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]] | None = None,
+    ) -> ChatCompletion:
+        return await asyncio.to_thread(
+            self._request_chat_completion, messages, tools
+        )
+
+
 def create_oasis_model(config: Dict[str, Any], use_boost: bool = False):
     """Create the CAMEL model used by OASIS simulations."""
 
@@ -255,6 +402,22 @@ def create_oasis_model(config: Dict[str, Any], use_boost: bool = False):
         raise ValueError(
             'Missing API Key configuration. Please set LLM_API_KEY in the project root .env file '
             'or use LLM_PROVIDER=claude-cli/codex-cli.'
+        )
+
+    # Use MCPOpenAIModel when MCP tools are available so simulation agents
+    # can invoke tools via native OpenAI function-calling.
+    mgr = _get_mcp_manager_if_enabled()
+    if mgr is not None:
+        print(
+            f"{resolved.label} provider={resolved.provider}, model={resolved.model}, "
+            f"base_url={resolved.base_url[:40] if resolved.base_url else 'default'}..., "
+            f"mcp_tools={len(mgr.get_tools())}"
+        )
+        return MCPOpenAIModel(
+            model_type=resolved.model,
+            model_config_dict={"temperature": 1.0},
+            api_key=resolved.api_key,
+            url=resolved.base_url or None,
         )
 
     print(

@@ -440,7 +440,7 @@
             <div class="rounds-header">
               <div class="header-left">
                 <span class="section-title">Simulation Rounds Setting</span>
-                <span class="section-desc">MiroFish auto-plans prediction over <span class="desc-highlight">{{ simulationConfig?.time_config?.total_simulation_hours || '-' }}</span> hours of real time, each round represents <span class="desc-highlight">{{ simulationConfig?.time_config?.minutes_per_round || '-' }}</span> minutes of time flow</span>
+                <span class="section-desc">Swarm Analytics auto-plans prediction over <span class="desc-highlight">{{ simulationConfig?.time_config?.total_simulation_hours || '-' }}</span> hours of real time, each round represents <span class="desc-highlight">{{ simulationConfig?.time_config?.minutes_per_round || '-' }}</span> minutes of time flow</span>
               </div>
               <label class="switch-control">
                 <input type="checkbox" v-model="useCustomRounds">
