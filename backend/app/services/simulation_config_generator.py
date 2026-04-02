@@ -684,6 +684,15 @@ Please generate an event configuration JSON:
 **Important**: poster_type must be selected from the "Available Entity Types" above, so that initial updates can be assigned to suitable Agents.
 For example: official policies should be published by Department/Executive types, updates by HR/Communications, and feedback by Employee/Analyst types.
 
+**Data-driven posts**: At least 2 of the initial posts MUST pose concrete
+business questions or reference specific metrics that invite data-backed
+responses. Examples of data-oriented posts:
+- "Does anyone have the latest Q1 EMEA revenue numbers? I need them for the board deck."
+- "I'm seeing conflicting data on our consumer churn rate — can someone pull the actuals?"
+- "What's our current marketing spend vs. ROAS for the paid media campaigns?"
+These create natural opportunities for colleagues to look up real data before
+responding, which leads to more substantive, evidence-based discussions.
+
 Return JSON format (no markdown):
 {{
     "hot_topics": ["keyword1", "keyword2", ...],

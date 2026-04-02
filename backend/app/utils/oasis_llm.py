@@ -84,8 +84,11 @@ choose actions from the available functions.
 - Match your tone to your role and seniority level — executives communicate
   strategically, analysts lead with data, managers focus on coordination.
 - Do not write one-liner tweets. Every message should add professional value.
-- When available tools (database queries, data lookups, etc.) could strengthen
-  your message with real data, use them before responding.
+- IMPORTANT: Before composing any message that references metrics, trends, or
+  business data, you MUST first call the relevant data tool (e.g.
+  lookup_business_data, basic_news_search) to retrieve real numbers.
+  Include the retrieved data in your post so colleagues see evidence,
+  not assumptions.
 
 # SELF-DESCRIPTION
 Your actions and communication style should be consistent with your
@@ -93,7 +96,12 @@ professional identity and personality.
 {description}
 
 # RESPONSE METHOD
-Please perform actions by tool calling.
+Follow these two steps in order:
+1. DATA RETRIEVAL: If data tools are available and the topic involves metrics,
+   performance, trends, or verifiable claims, call the appropriate tool first
+   to gather real evidence.
+2. PLATFORM ACTION: Then perform your platform action (post, reply, etc.)
+   incorporating the data you retrieved. Cite specific numbers and sources.
 """
 
 
@@ -151,9 +159,11 @@ After reviewing them, choose actions from the available functions.
 - Tailor depth and formality to the audience (executive summaries for
   leadership, detailed breakdowns for peers or direct reports).
 - Include clear recommendations or questions to move discussions forward.
-- When available tools (database queries, data lookups, etc.) could provide
-  concrete evidence or data for your email, use them before composing your
-  response.
+- IMPORTANT: Before composing any email that references metrics, trends, or
+  business data, you MUST first call the relevant data tool (e.g.
+  lookup_business_data, basic_news_search) to retrieve real numbers.
+  Include the retrieved data in your email so recipients see evidence,
+  not assumptions.
 
 # SELF-DESCRIPTION
 Your communication style and professional opinions should be consistent
@@ -161,7 +171,13 @@ with your identity and expertise.
 {description}
 
 # RESPONSE METHOD
-Please perform actions by tool calling.
+Follow these two steps in order:
+1. DATA RETRIEVAL: If data tools are available and the topic involves metrics,
+   performance, trends, or verifiable claims, call the appropriate tool first
+   to gather real evidence.
+2. PLATFORM ACTION: Then perform your platform action (compose email, reply,
+   etc.) incorporating the data you retrieved. Cite specific numbers and
+   sources.
 """
 
 
@@ -607,32 +623,59 @@ def get_oasis_semaphore(config: Dict[str, Any], use_boost: bool = False) -> int:
 # XML format that we can regex-parse from CLI providers that don't support
 # native OpenAI function-calling JSON.
 MCP_TOOL_SYSTEM_ADDENDUM = """
-You have access to external tools.  You MUST actively consider using them on
-every turn.  Before composing your response, ask yourself: "Could any of my
-available tools provide concrete data, evidence, or context that would make
-my response more grounded and valuable?"  If the answer is yes, invoke the
-tool FIRST and incorporate the results into your reply.
+# DATA TOOLS — USE BEFORE EVERY PLATFORM ACTION
 
-To call a tool, output a single <tool_call> block anywhere in your reply:
+You have access to data tools listed below.  You MUST use them to ground your
+messages in real data.  Do NOT rely on memory or assumptions when a tool can
+provide concrete numbers.
+
+## How to call a tool
+
+Output a <tool_call> block (you will receive an <observation> with the result):
 
 <tool_call>
-{"name": "<tool_name>", "arguments": {<json_args>}}
+{{"name": "<tool_name>", "arguments": {{<json_args>}}}}
 </tool_call>
 
-After each tool call you will receive an <observation> with the result.
-You may call up to {max_rounds} tools per turn.  When you have all the data
-you need, write your final answer normally (no <tool_call> block).
+You may call up to {max_rounds} tools per turn.  When you have the data you
+need, write your final message normally (no <tool_call> block).
 
-Guidelines for tool usage:
-- Prefer using a tool over relying on memory or assumptions when factual data
-  is available.
-- If a tool can verify a claim, look up a metric, or fetch recent information,
-  call it.
-- Cite or reference the data you retrieved from tools in your response so
-  others can see the evidence behind your statements.
+## Rules
+1. Before choosing CREATE_POST, CREATE_COMMENT, or any message action, check
+   whether a tool can provide numbers relevant to the discussion.  If yes,
+   call the tool FIRST.
+2. Include the retrieved data (metrics, quotes, facts) in your message so
+   colleagues see evidence, not guesses.
+3. If multiple tools are relevant, call the most specific one.
 
-Available tools:
+## Available tools
 {tool_descriptions}
+
+## Example 1 — Slack post backed by data lookup
+
+A colleague posts: "How is EMEA revenue tracking this quarter?"
+
+Your response:
+<tool_call>
+{{"name": "lookup_business_data", "arguments": {{"dataset": "sales", "region": "EMEA", "quarter": "Q1"}}}}
+</tool_call>
+
+(You receive an <observation> with revenue figures.)
+
+Then you compose your Slack message referencing the actual numbers.
+
+## Example 2 — Email backed by news search
+
+A thread discusses competitor moves in the market.
+
+Your response:
+<tool_call>
+{{"name": "basic_news_search", "arguments": {{"query": "competitor product launch 2026"}}}}
+</tool_call>
+
+(You receive an <observation> with news results.)
+
+Then you compose your email citing specific articles and data points.
 """.strip()
 
 import re
@@ -764,9 +807,14 @@ class ToolRouter:
             import re as _re
             match = _re.search(r'\[.*?\]', raw or '', _re.DOTALL)
             if not match:
-                logger.warning("ToolRouter: no JSON array in LLM response")
-                self._cache[agent_key] = []
-                return []
+                fallback = [t.name for t in all_tools][:max_tools]
+                logger.warning(
+                    f"ToolRouter: no JSON array in LLM response; "
+                    f"falling back to all tools for agent {agent_key[:8]}… "
+                    f"({agent_desc[:100]})"
+                )
+                self._cache[agent_key] = fallback
+                return fallback
 
             selected = json.loads(match.group(0))
             if not isinstance(selected, list):
@@ -782,9 +830,14 @@ class ToolRouter:
             return result
 
         except Exception as exc:
-            logger.warning(f"ToolRouter: LLM call failed ({exc}); agent gets no tools")
-            self._cache[agent_key] = []
-            return []
+            fallback = [t.name for t in all_tools][:max_tools]
+            logger.warning(
+                f"ToolRouter: LLM call failed ({exc}); "
+                f"falling back to all tools for agent {agent_key[:8]}… "
+                f"({agent_desc[:100]})"
+            )
+            self._cache[agent_key] = fallback
+            return fallback
 
 
 _tool_router = ToolRouter()
