@@ -194,6 +194,9 @@ All tools the server registers are automatically discovered and made available t
 
 Set `MCP_SERVER_ENABLED=false` (or omit it). The simulation and report pipelines fall back to their default behavior with zero overhead.
 
+### Updating docker and pushing images
+git tag v1.0.x && git push origin v1.0.x
+
 ## Acknowledgments
 
 - [MiroFish](https://github.com/666ghj/MiroFish) by 666ghj — original project
