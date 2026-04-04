@@ -67,8 +67,9 @@ Must strictly adhere to the following JSON structure, no other characters allowe
 ### Assessment Criteria
 1. Accuracy: Entity types accurately reflect the roles in the corporate text.
 2. Interactivity: ALL entities must be agents capable of sending internal emails/Slack messages. Events and policies are strictly prohibited from being entity types!
-3. Objectivity: Appropriate relationship definitions, standard naming (uppercase letters + underscores)
-4. Reality: Relationships should reflect real connections in corporate organizational structures.
+3. Workflows: Output realistic workflow edges between entities such as BLOCKED_BY, APPROVED_BY, ESCALATED_TO, COLLABORATES_WITH, or DEPENDS_ON.
+4. Objectivity: Appropriate relationship definitions, standard naming (uppercase letters + underscores)
+5. Reality: Relationships should reflect real connections in corporate organizational structures and processes.
 """
 
 

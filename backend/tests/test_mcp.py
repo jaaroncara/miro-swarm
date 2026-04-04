@@ -66,11 +66,11 @@ def main():
     # ---------------------------------------------------------------
     # 4. Synchronous tool calls (main thread — no event loop)
     # ---------------------------------------------------------------
-    result1 = mgr.call_tool_sync("get_weather", {"city": "London"})
-    print(f"call_tool_sync (get_weather):\n{result1}")
+    result1 = mgr.call_tool_sync("add", {"a": 5, "b": 3})
+    print(f"call_tool_sync (add):\n{result1}")
 
-    result2 = mgr.call_tool_sync("lookup_sales_data", {"region": "Asia", "quarter": "Q2"})
-    print(f"\ncall_tool_sync (lookup_sales_data):\n{result2}")
+    result2 = mgr.call_tool_sync("lookup_business_data", {"dataset": "sales", "region": "North America", "quarter": "Q1"})
+    print(f"\ncall_tool_sync (lookup_business_data):\n{result2}")
 
     # ---------------------------------------------------------------
     # 5. Cleanup

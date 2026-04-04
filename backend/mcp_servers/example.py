@@ -82,8 +82,7 @@ _DATASETS = {
 
 @mcp.tool()
 async def lookup_business_data(dataset: str, region: str, quarter: str) -> str:
-    """
-    Query business datasets for metrics across various domains.
+    """For finance, marketing & sales agents: Query business metrics (revenue, ROI, engagement, NPS).
 
     Args:
         dataset: The dataset to query (e.g., "sales", "finance", "marketing", "consumer", "paid_media")
@@ -118,75 +117,57 @@ async def lookup_business_data(dataset: str, region: str, quarter: str) -> str:
 
 @mcp.tool()
 def add(a: float, b: float) -> str:
-    """
-    Add two numbers.
-    """
+    """For analyst and finance agents: Add two numbers together."""
     return str(a + b)
 
 @mcp.tool()
 def subtract(a: float, b: float) -> str:
-    """
-    Subtract the second number from the first.
-    """
+    """For analyst and finance agents: Subtract the second number from the first."""
     return str(a - b)
 
 @mcp.tool()
 def multiply(a: float, b: float) -> str:
-    """
-    Multiply two numbers.
-    """
+    """For analyst and finance agents: Multiply two numbers."""
     return str(a * b)
 
 @mcp.tool()
 def divide(a: float, b: float) -> str:
-    """
-    Divide the first number by the second.
-    """
+    """For analyst and finance agents: Divide the first number by the second."""
     if b == 0:
         return "Error: Division by zero."
     return str(a / b)
 
 @mcp.tool()
 def calculate_standard_deviation(numbers: List[float]) -> str:
-    """
-    Calculate the standard deviation of a list of numbers.
-    """
+    """For analyst and finance agents: Calculate the standard deviation of numbers."""
     if len(numbers) < 2:
         return "Error: Standard deviation requires at least two data points."
     return str(statistics.stdev(numbers))
 
 @mcp.tool()
 def calculate_min(numbers: List[float]) -> str:
-    """
-    Find the minimum value in a list of numbers.
-    """
+    """For analyst and finance agents: Find the minimum value in a list of numbers."""
     if not numbers:
         return "Error: List is empty."
     return str(min(numbers))
 
 @mcp.tool()
 def calculate_max(numbers: List[float]) -> str:
-    """
-    Find the maximum value in a list of numbers.
-    """
+    """For analyst and finance agents: Find the maximum value in a list of numbers."""
     if not numbers:
         return "Error: List is empty."
     return str(max(numbers))
 
 @mcp.tool()
 def calculate_average(numbers: List[float]) -> str:
-    """
-    Calculate the average (mean) of a list of numbers.
-    """
+    """For analyst and finance agents: Calculate the average (mean) of a list of numbers."""
     if not numbers:
         return "Error: List is empty."
     return str(statistics.mean(numbers))
 
 @mcp.tool()
 def calculate_mode(numbers: List[float]) -> str:
-    """
-    Calculate the mode of a list of numbers.
-    """
+    """For analyst and finance agents: Calculate the mode of a list of numbers."""
     if not numbers:
         return "Error: List is empty."
     try:
@@ -196,13 +177,19 @@ def calculate_mode(numbers: List[float]) -> str:
     
 @mcp.tool()
 def basic_news_search(query):
-    """Search the web for recent news using the Tavily Web Search API."""
+    """For research and planning agents: Search the web for recent news articles and current events.
+    
+    Uses the Tavily Web Search API.
+    """
     tavily = TavilySearch(max_results=2, topic="news", tavily_api_key=TAVILY_API_KEY)
     return {"messages": tavily.invoke(query)}
     
 @mcp.tool()
 def basic_web_search(query):
-    """Search the web for general topics using the Tavily Web Search API."""
+    """For research and planning agents: Search the web for general topics and web content.
+    
+    Uses the Tavily Web Search API.
+    """
     tavily = TavilySearch(max_results=2, topic="general", tavily_api_key=TAVILY_API_KEY)
     return {"messages": tavily.invoke(query)}
 

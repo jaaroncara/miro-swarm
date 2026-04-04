@@ -607,7 +607,13 @@ class OasisProfileGenerator:
 
     def _get_system_prompt(self, is_individual: bool) -> str:
         """Get the system prompt"""
-        base_prompt = "You are an expert in generating business and corporate employee profiles. Generate detailed, realistic personas for organizational decision-making simulations that reconstruct corporate environments (like Slack or internal forums) as closely as possible. Each persona should portray someone who naturally reaches for available tools (database queries, web searches, data lookups) to ground their statements in concrete evidence rather than relying solely on opinion. You must return valid JSON format, and all string values must not contain unescaped newline characters. Use English."
+        base_prompt = (
+            "You are an expert in generating business and corporate employee profiles. "
+            "Generate detailed, realistic personas for organizational decision-making simulations that reconstruct corporate environments (like Slack or internal forums). "
+            "Every persona must be driven by 1-2 specific quarterly OKRs (Objectives and Key Results), have a defined risk tolerance, and specific organizational friction points. "
+            "Each persona should portray someone who naturally reaches for available tools (database queries, web searches, data lookups) to ground their statements in concrete evidence rather than relying solely on opinion. "
+            "You must return valid JSON format, and all string values must not contain unescaped newline characters. Use English."
+        )
         return base_prompt
 
     def _build_individual_persona_prompt(
@@ -642,7 +648,8 @@ Please generate JSON containing the following fields:
    - Professional background (career history, connections to company events, cross-functional relationships)
    - Personality traits (MBTI type, core personality, emotional expression style in workplace)
    - Communication behavior (Slack/Email messaging frequency, collaboration style, corporate language characteristics)
-   - Stances and business opinions (attitudes toward strategic company topics, changes, risk tolerance)
+   - Strategic OKRs & Business Stances (Assign 1-2 specific quarterly Objectives and Key Results. Describe their attitudes toward strategic company topics, changes, and their specific risk tolerance)
+   - Organizational Friction Points (Who do they naturally clash with or what processes block them? Identify sources of friction)
    - Unique characteristics (workplace catchphrases, operational habits)
    - Professional memory (an important part of the persona, introduce this individual's connection to previous business decisions, as well as their actions during critical projects)
    - Tool-usage behavior (this person proactively uses available tools — such as database queries, web searches, or data lookups — to retrieve concrete data and evidence before making claims or sharing opinions; describe how and when they tend to reach for external tools to enrich their contributions)
