@@ -104,6 +104,22 @@ class GenerateReportTool:
                     task_id,
                     status=TaskStatus.PROCESSING,
                     progress=0,
+                    message="Analyzing transcript and computing graph edge mutations...",
+                )
+                
+                # 1. Execute edge mutations based on simulation outcomes
+                try:
+                    from ..services.graph_memory_updater import GraphMemoryUpdater
+                    updater = GraphMemoryUpdater(graph_id=graph_id)
+                    mutation_res = updater.analyze_and_mutate_graph()
+                    logger.info(f"Graph mutation step completed: {mutation_res}")
+                except Exception as eval_exc:
+                    logger.warning(f"Graph mutation step failed, continuing to report: {eval_exc}")
+
+                self.task_manager.update_task(
+                    task_id,
+                    status=TaskStatus.PROCESSING,
+                    progress=10,
                     message="Initializing Report Agent...",
                 )
 

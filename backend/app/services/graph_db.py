@@ -377,6 +377,14 @@ class GraphDatabase:
         stored = next((item for item in storage.get_edges() if item["id"] == edge_id), edge)
         return self._dict_to_edge(stored)
 
+    def delete_edge(self, graph_id: str, edge_uuid: str) -> bool:
+        storage = self.get_storage(graph_id)
+        return storage.delete_edge(edge_uuid)
+
+    def update_edge(self, graph_id: str, edge_uuid: str, updates: Dict[str, Any]) -> bool:
+        storage = self.get_storage(graph_id)
+        return storage.update_edge(edge_uuid, updates)
+
     def get_all_edges(self, graph_id: str) -> List[GraphEdge]:
         storage = self.get_storage(graph_id)
         return [self._dict_to_edge(edge) for edge in storage.get_edges()]

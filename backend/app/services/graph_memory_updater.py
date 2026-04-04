@@ -279,6 +279,102 @@ class GraphMemoryUpdater:
         )
         self.add_activity(activity)
 
+    def analyze_and_mutate_graph(self) -> Dict[str, Any]:
+        """
+        Analyze simulation transcript episodes and compute edge mutations.
+        Updates edges in the graph directly. Converts relationships like 
+        COLLABORATES_WITH to CONFLICTS_WITH based on LLM analysis.
+        """
+        logger.info(f"Starting graph memory analyzer for graph: {self.graph_id}")
+        
+        # 1. Fetch episodes
+        storage = self.storage
+        if not storage:
+            storage = self.db.get_storage(self.graph_id)
+            
+        if not storage:
+            logger.warning(f"Could not load storage for graph {self.graph_id}")
+            return {"status": "error", "message": "Storage not available"}
+
+        # Gather all episodes (or all unprocessed ones, depending on implementation design)
+        # Using a direct query or assuming recent episodes logic is handled elsewhere.
+        episodes_data = storage.get_unprocessed_episodes()
+        if not episodes_data:
+            logger.info("No unprocessed episodes found for mutation analysis.")
+            return {"status": "success", "mutations": 0, "message": "No new episodes"}
+            
+        transcript_content = "\\n".join([ep.get("content", "") for ep in episodes_data])
+        
+        # 2. Get list of current edges so the LLM knows what exists
+        current_edges = self.db.get_all_edges(self.graph_id)
+        if not current_edges:
+            logger.info("No edges found in the graph to mutate.")
+            return {"status": "success", "mutations": 0, "message": "No edges to mutate"}
+            
+        edges_summary = []
+        edge_map = {}
+        for edge in current_edges:
+            edge_map[edge.uuid_] = edge
+            # For simplicity, we reference the node names directly if available, else IDs
+            # (Assuming graph memory updater may not trace node names perfectly here, but we format the ID)
+            edges_summary.append(f"Edge ID: {edge.uuid_} | Source: {edge.source_node_uuid} | Target: {edge.target_node_uuid} | Relation: {edge.name}")
+
+        prompt = f"""
+You are an Organizational Auditor. Review the simulation transcript below and determine if any 
+corporate relationships (edges) should be updated based on friction, collaboration, or conflict.
+For example, if two entities heavily disagree, you might change COLLABORATES_WITH to CONFLICTS_WITH.
+Or if someone helps someone unblock a task, you might add/change an edge to SUPPORTS or ALIGNED_WITH.
+
+[Current Edges]
+{chr(10).join(edges_summary)}
+
+[Simulation Transcript]
+{transcript_content[:20000]} # Truncated to avoid context limit overflow
+
+Respond ONLY with a JSON array of mutation objects matching this format:
+[
+  {{
+    "edge_id": "the_edge_id_here",
+    "new_relation": "CONFLICTS_WITH",
+    "reason": "Agent A aggressively blocked Agent B's budget request."
+  }}
+]
+If no mutations are necessary, return an empty array [].
+"""
+        try:
+            from ..utils.llm_client import LLMClient
+            llm = LLMClient()
+            response_text = llm.chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.0
+            )
+            
+            import re
+            import json
+            match = re.search(r'\[.*?\]', response_text, re.DOTALL)
+            mutations_json = json.loads(match.group(0)) if match else []
+            
+            mutations_applied = 0
+            for mutation in mutations_json:
+                edge_id = mutation.get("edge_id")
+                new_relation = mutation.get("new_relation")
+                if edge_id in edge_map and new_relation:
+                    # Update edge
+                    logger.info(f"Mutating edge {edge_id} to {new_relation} - Reason: {mutation.get('reason')}")
+                    success = self.db.update_edge(self.graph_id, edge_id, {"relation": new_relation})
+                    if success:
+                        mutations_applied += 1
+            
+            # Mark analyzed episodes as processed
+            for ep in episodes_data:
+                storage.mark_episode_processed(ep["id"])
+                
+            return {"status": "success", "mutations": mutations_applied, "message": f"Applied {mutations_applied} mutations"}
+
+        except Exception as e:
+            logger.error(f"Error during graph mutation analysis: {e}")
+            return {"status": "error", "message": str(e)}
+
     def _worker_loop(self):
         """Background worker loop - batch activities by platform"""
         while self._running or not self._activity_queue.empty():

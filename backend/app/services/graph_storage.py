@@ -163,6 +163,14 @@ class GraphStorage(ABC):
         ...
 
     @abstractmethod
+    def delete_edge(self, edge_id: str) -> bool:
+        ...
+
+    @abstractmethod
+    def update_edge(self, edge_id: str, updates: dict) -> bool:
+        ...
+
+    @abstractmethod
     def get_edges(
         self,
         source_id: Optional[str] = None,
@@ -556,6 +564,57 @@ class KuzuDBStorage(GraphStorage):
         )
         return payload["id"]
 
+    def delete_edge(self, edge_id: str) -> bool:
+        edges = self.get_edges()
+        target_edge = next((e for e in edges if e["id"] == edge_id), None)
+        if not target_edge:
+            return False
+            
+        self._execute(
+            """
+            MATCH (a:Node)-[e:RELATES_TO {id: $id}]->(b:Node)
+            DELETE e
+            """,
+            {"id": edge_id},
+        )
+        return True
+
+    def update_edge(self, edge_id: str, updates: dict) -> bool:
+        edges = self.get_edges()
+        existing = next((e for e in edges if e["id"] == edge_id), None)
+        if not existing:
+            return False
+
+        merged = {**existing, **updates}
+        
+        # If the relation type is being explicitly changed, we might need a delete + recreate pattern
+        # KuzuDB RELATES_TO is a single generic edge table that stores 'relation' as a property
+        self._execute(
+            """
+            MATCH (a:Node)-[e:RELATES_TO {id: $id}]->(b:Node)
+            SET e.relation = $relation,
+                e.weight = $weight,
+                e.fact = $fact,
+                e.attributes = $attributes,
+                e.valid_at = $valid_at,
+                e.invalid_at = $invalid_at,
+                e.expired_at = $expired_at,
+                e.episodes = $episodes
+            """,
+            {
+                "id": edge_id,
+                "relation": merged["relation"],
+                "weight": merged["weight"],
+                "fact": merged["fact"],
+                "attributes": _json_dumps(merged["attributes"]),
+                "valid_at": merged["valid_at"] or "",
+                "invalid_at": merged["invalid_at"] or "",
+                "expired_at": merged["expired_at"] or "",
+                "episodes": _json_dumps(merged["episodes"]),
+            },
+        )
+        return True
+
     def get_edges(
         self,
         source_id: Optional[str] = None,
@@ -879,6 +938,23 @@ class JSONStorage(GraphStorage):
         edges.append(payload)
         self._save_edges(edges)
         return payload["id"]
+
+    def delete_edge(self, edge_id: str) -> bool:
+        edges = self._load_edges()
+        filtered = [e for e in edges if e["id"] != edge_id]
+        if len(filtered) == len(edges):
+            return False
+        self._save_edges(filtered)
+        return True
+
+    def update_edge(self, edge_id: str, updates: dict) -> bool:
+        edges = self._load_edges()
+        for idx, e in enumerate(edges):
+            if e["id"] == edge_id:
+                edges[idx] = {**e, **updates}
+                self._save_edges(edges)
+                return True
+        return False
 
     def get_edges(
         self,

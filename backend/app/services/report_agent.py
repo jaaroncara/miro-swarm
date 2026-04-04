@@ -600,12 +600,15 @@ Write a "Change Management & Organizational Impact Report" that answers:
 - This is NOT an analysis of real-world external public opinion
 - This is NOT a generic social media overview
 
-[Section Count Limits]
-- Minimum 3 sections, maximum 6 sections
-- No sub-sections needed; each section should contain complete content directly
-- Content should be concise, focusing on core prediction findings
-- Section structure is designed by you based on the prediction results
-- The final section MUST be dedicated to Actionable Recommendations
+[Section Structure Requirements]
+- The report MUST contain exactly 5 sections in this specific order:
+  1. Friction & Alignment Matrix
+  2. Bottleneck Analysis
+  3. OKR Compromises
+  4. Tool Dependency Audit
+  5. Actionable Recommendations
+- Do not invent new structures or combine them. Provide one distinct section for each topic.
+- Content should be concise, focusing on core prediction findings and actionable business intelligence.
 
 Please output the report outline in JSON format as follows:
 {
@@ -613,13 +616,29 @@ Please output the report outline in JSON format as follows:
     "summary": "Report summary (one sentence summarizing core prediction findings)",
     "sections": [
         {
-            "title": "Section Title",
-            "description": "Section content description"
+            "title": "Friction & Alignment Matrix",
+            "description": "Analyze which departments aligned or conflicted based on the simulation transcript"
+        },
+        {
+            "title": "Bottleneck Analysis",
+            "description": "Identify which persona or process caused the most delays in reaching consensus"
+        },
+        {
+            "title": "OKR Compromises",
+            "description": "Evaluate which departments actively sacrificed their OKRs to reach an agreement"
+        },
+        {
+            "title": "Tool Dependency Audit",
+            "description": "Examine which data sources (MCP tools) conclusively swayed the conversation"
+        },
+        {
+            "title": "Actionable Recommendations",
+            "description": "Concrete mitigation steps and operational adjustments based on the simulation findings"
         }
     ]
 }
 
-Note: The sections array must contain at least 3 and at most 6 elements, and the final section MUST explicitly be titled "Actionable Recommendations" or similar!"""
+Note: The sections array must contain EXACTLY 5 elements matching the titles above!"""
 
 PLAN_USER_PROMPT_TEMPLATE = """\
 [Prediction Scenario Setup]
