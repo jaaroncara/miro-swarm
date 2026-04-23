@@ -20,17 +20,19 @@ from typing import Any, Dict, List, Optional
 from ..config import Config
 from .logger import get_logger
 
-logger = get_logger('mirofish.mcp_manager')
+logger = get_logger("mirofish.mcp_manager")
 
 
 # ---------------------------------------------------------------------------
 # Module-level singleton
 # ---------------------------------------------------------------------------
-_instance: Optional['MCPManager'] = None
-_instance_lock: Optional[asyncio.Lock] = None  # created lazily inside the running event loop
+_instance: Optional["MCPManager"] = None
+_instance_lock: Optional[asyncio.Lock] = (
+    None  # created lazily inside the running event loop
+)
 
 
-async def get_mcp_manager() -> 'MCPManager':
+async def get_mcp_manager() -> "MCPManager":
     """Return the global MCPManager, creating it on first call."""
     global _instance, _instance_lock
     if _instance_lock is None:
@@ -43,7 +45,7 @@ async def get_mcp_manager() -> 'MCPManager':
         return _instance
 
 
-def get_mcp_manager_sync() -> Optional['MCPManager']:
+def get_mcp_manager_sync() -> Optional["MCPManager"]:
     """Non-async accessor — returns the cached instance or *None*."""
     return _instance
 
@@ -60,6 +62,7 @@ async def shutdown_mcp_manager() -> None:
 # OpenAI-compatible schema helpers
 # ---------------------------------------------------------------------------
 
+
 def _mcp_schema_to_openai_tool(tool) -> Dict[str, Any]:
     """
     Convert an MCP Tool object to the OpenAI function-calling schema.
@@ -68,7 +71,7 @@ def _mcp_schema_to_openai_tool(tool) -> Dict[str, Any]:
     We wrap that into the ``{"type": "function", "function": {...}}`` format
     expected by the OpenAI Chat Completions API.
     """
-    input_schema = tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+    input_schema = tool.inputSchema if hasattr(tool, "inputSchema") else {}
     # Ensure we have a valid JSON Schema object
     if not isinstance(input_schema, dict):
         input_schema = {}
@@ -95,14 +98,16 @@ def _mcp_tools_to_react_description(tools) -> str:
     """
     parts: list[str] = []
     for tool in tools:
-        input_schema = tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+        input_schema = tool.inputSchema if hasattr(tool, "inputSchema") else {}
         props = (input_schema or {}).get("properties", {})
         if props:
             param_strs = []
             for pname, pschema in props.items():
                 ptype = pschema.get("type", "any")
                 pdesc = pschema.get("description", "")
-                param_strs.append(f"{pname} ({ptype}): {pdesc}" if pdesc else f"{pname} ({ptype})")
+                param_strs.append(
+                    f"{pname} ({ptype}): {pdesc}" if pdesc else f"{pname} ({ptype})"
+                )
             params_line = f"  Parameters: {', '.join(param_strs)}"
         else:
             params_line = "  Parameters: (none)"
@@ -111,9 +116,31 @@ def _mcp_tools_to_react_description(tools) -> str:
     return "\n".join(parts)
 
 
+def _truncate_log_text(text: str, limit: int = 300) -> str:
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}...<truncated {len(text) - limit} chars>"
+
+
+def _summarize_tool_invocation(
+    name: str,
+    arguments: Dict[str, Any],
+) -> tuple[str, str, str, str]:
+    simulation_id = str(arguments.get("simulation_id") or "-")
+    actor = str(arguments.get("actor") or "-")
+    remaining_args = {
+        key: value
+        for key, value in arguments.items()
+        if key not in {"simulation_id", "actor"}
+    }
+    serialized_args = json.dumps(remaining_args, ensure_ascii=False, default=str)
+    return name, simulation_id, actor, _truncate_log_text(serialized_args, limit=400)
+
+
 # ---------------------------------------------------------------------------
 # MCPManager
 # ---------------------------------------------------------------------------
+
 
 class MCPManager:
     """
@@ -131,16 +158,20 @@ class MCPManager:
         max_concurrent: int = 5,
     ):
         self._server_cmd = server_cmd or Config.MCP_SERVER_CMD
-        self._server_args = server_args if server_args is not None else list(Config.MCP_SERVER_ARGS)
+        self._server_args = (
+            server_args if server_args is not None else list(Config.MCP_SERVER_ARGS)
+        )
         self._timeout = timeout or Config.MCP_TOOL_CALL_TIMEOUT
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
         # MCP SDK objects (populated on connect)
         self._session: Any = None
         self._stdio_transport: Any = None  # context manager wrapper
-        self._tools: List[Any] = []        # list of mcp.types.Tool
+        self._tools: List[Any] = []  # list of mcp.types.Tool
         self._tools_by_name: Dict[str, Any] = {}
-        self._loop: Optional[asyncio.AbstractEventLoop] = None  # event loop owning the session
+        self._loop: Optional[asyncio.AbstractEventLoop] = (
+            None  # event loop owning the session
+        )
 
         self.is_connected = False
 
@@ -273,7 +304,17 @@ class MCPManager:
             )
 
         async with self._semaphore:
-            logger.info(f"MCP call_tool: {name}({json.dumps(arguments, ensure_ascii=False)[:200]})")
+            _, simulation_id, actor, serialized_args = _summarize_tool_invocation(
+                name, arguments
+            )
+            start_time = asyncio.get_running_loop().time()
+            logger.info(
+                "MCP tool start: name=%s simulation_id=%s actor=%s args=%s",
+                name,
+                simulation_id,
+                actor,
+                serialized_args,
+            )
             try:
                 result = await asyncio.wait_for(
                     self._session.call_tool(name, arguments),
@@ -281,19 +322,49 @@ class MCPManager:
                 )
             except asyncio.TimeoutError:
                 msg = f"MCP tool '{name}' timed out after {self._timeout}s"
-                logger.warning(msg)
+                elapsed_ms = int(
+                    (asyncio.get_running_loop().time() - start_time) * 1000
+                )
+                logger.warning(
+                    "MCP tool timeout: name=%s simulation_id=%s actor=%s elapsed_ms=%s",
+                    name,
+                    simulation_id,
+                    actor,
+                    elapsed_ms,
+                )
                 raise TimeoutError(msg)
+            except Exception as exc:
+                elapsed_ms = int(
+                    (asyncio.get_running_loop().time() - start_time) * 1000
+                )
+                logger.warning(
+                    "MCP tool failure: name=%s simulation_id=%s actor=%s elapsed_ms=%s error=%s",
+                    name,
+                    simulation_id,
+                    actor,
+                    elapsed_ms,
+                    exc,
+                )
+                raise
 
             # Concatenate text content blocks
             text_parts = []
             for block in result.content:
-                if hasattr(block, 'text'):
+                if hasattr(block, "text"):
                     text_parts.append(block.text)
-                elif hasattr(block, 'data'):
+                elif hasattr(block, "data"):
                     text_parts.append(f"[binary data: {len(block.data)} bytes]")
 
             output = "\n".join(text_parts) if text_parts else "(empty result)"
-            logger.debug(f"MCP result for {name}: {output[:300]}")
+            elapsed_ms = int((asyncio.get_running_loop().time() - start_time) * 1000)
+            logger.info(
+                "MCP tool success: name=%s simulation_id=%s actor=%s elapsed_ms=%s result=%s",
+                name,
+                simulation_id,
+                actor,
+                elapsed_ms,
+                _truncate_log_text(output.replace("\n", "\\n")),
+            )
             return output
 
     def call_tool_sync(self, name: str, arguments: Dict[str, Any]) -> str:

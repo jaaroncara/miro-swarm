@@ -21,15 +21,16 @@ from enum import Enum
 from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
+from ..core.simulation_task_store import get_simulation_task_store
 from .graph_tools import (
     GraphToolsService,
     SearchResult,
     InsightForgeResult,
     PanoramaResult,
-    InterviewResult
+    InterviewResult,
 )
 
-logger = get_logger('mirofish.report_agent')
+logger = get_logger("mirofish.report_agent")
 
 
 def _detect_language(text: str) -> str:
@@ -80,7 +81,7 @@ class ReportLogger:
         """
         self.report_id = report_id
         self.log_file_path = os.path.join(
-            Config.UPLOAD_FOLDER, 'reports', report_id, 'agent_log.jsonl'
+            Config.UPLOAD_FOLDER, "reports", report_id, "agent_log.jsonl"
         )
         self.start_time = datetime.now()
         self._ensure_log_file()
@@ -100,7 +101,7 @@ class ReportLogger:
         stage: str,
         details: Dict[str, Any],
         section_title: str = None,
-        section_index: int = None
+        section_index: int = None,
     ):
         """
         Record a log entry
@@ -120,12 +121,12 @@ class ReportLogger:
             "stage": stage,
             "section_title": section_title,
             "section_index": section_index,
-            "details": details
+            "details": details,
         }
 
         # Append to JSONL file
-        with open(self.log_file_path, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        with open(self.log_file_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
     def log_start(self, simulation_id: str, graph_id: str, simulation_requirement: str):
         """Record report generation start"""
@@ -136,8 +137,8 @@ class ReportLogger:
                 "simulation_id": simulation_id,
                 "graph_id": graph_id,
                 "simulation_requirement": simulation_requirement,
-                "message": "Report generation task started"
-            }
+                "message": "Report generation task started",
+            },
         )
 
     def log_planning_start(self):
@@ -145,7 +146,7 @@ class ReportLogger:
         self.log(
             action="planning_start",
             stage="planning",
-            details={"message": "Starting report outline planning"}
+            details={"message": "Starting report outline planning"},
         )
 
     def log_planning_context(self, context: Dict[str, Any]):
@@ -155,8 +156,8 @@ class ReportLogger:
             stage="planning",
             details={
                 "message": "Retrieved simulation context information",
-                "context": context
-            }
+                "context": context,
+            },
         )
 
     def log_planning_complete(self, outline_dict: Dict[str, Any]):
@@ -164,10 +165,7 @@ class ReportLogger:
         self.log(
             action="planning_complete",
             stage="planning",
-            details={
-                "message": "Outline planning completed",
-                "outline": outline_dict
-            }
+            details={"message": "Outline planning completed", "outline": outline_dict},
         )
 
     def log_section_start(self, section_title: str, section_index: int):
@@ -177,10 +175,12 @@ class ReportLogger:
             stage="generating",
             section_title=section_title,
             section_index=section_index,
-            details={"message": f"Starting section generation: {section_title}"}
+            details={"message": f"Starting section generation: {section_title}"},
         )
 
-    def log_react_thought(self, section_title: str, section_index: int, iteration: int, thought: str):
+    def log_react_thought(
+        self, section_title: str, section_index: int, iteration: int, thought: str
+    ):
         """Record ReACT thinking process"""
         self.log(
             action="react_thought",
@@ -190,8 +190,8 @@ class ReportLogger:
             details={
                 "iteration": iteration,
                 "thought": thought,
-                "message": f"ReACT iteration {iteration} thinking"
-            }
+                "message": f"ReACT iteration {iteration} thinking",
+            },
         )
 
     def log_tool_call(
@@ -200,7 +200,7 @@ class ReportLogger:
         section_index: int,
         tool_name: str,
         parameters: Dict[str, Any],
-        iteration: int
+        iteration: int,
     ):
         """Record tool invocation"""
         self.log(
@@ -212,8 +212,8 @@ class ReportLogger:
                 "iteration": iteration,
                 "tool_name": tool_name,
                 "parameters": parameters,
-                "message": f"Invoking tool: {tool_name}"
-            }
+                "message": f"Invoking tool: {tool_name}",
+            },
         )
 
     def log_tool_result(
@@ -222,7 +222,7 @@ class ReportLogger:
         section_index: int,
         tool_name: str,
         result: str,
-        iteration: int
+        iteration: int,
     ):
         """Record tool invocation result (full content, not truncated)"""
         self.log(
@@ -235,8 +235,8 @@ class ReportLogger:
                 "tool_name": tool_name,
                 "result": result,  # Full result, not truncated
                 "result_length": len(result),
-                "message": f"Tool {tool_name} returned result"
-            }
+                "message": f"Tool {tool_name} returned result",
+            },
         )
 
     def log_llm_response(
@@ -246,7 +246,7 @@ class ReportLogger:
         response: str,
         iteration: int,
         has_tool_calls: bool,
-        has_final_answer: bool
+        has_final_answer: bool,
     ):
         """Record LLM response (full content, not truncated)"""
         self.log(
@@ -260,8 +260,8 @@ class ReportLogger:
                 "response_length": len(response),
                 "has_tool_calls": has_tool_calls,
                 "has_final_answer": has_final_answer,
-                "message": f"LLM response (tool calls: {has_tool_calls}, final answer: {has_final_answer})"
-            }
+                "message": f"LLM response (tool calls: {has_tool_calls}, final answer: {has_final_answer})",
+            },
         )
 
     def log_section_content(
@@ -269,7 +269,7 @@ class ReportLogger:
         section_title: str,
         section_index: int,
         content: str,
-        tool_calls_count: int
+        tool_calls_count: int,
     ):
         """Record section content generation completion (content only, does not indicate full section completion)"""
         self.log(
@@ -281,15 +281,12 @@ class ReportLogger:
                 "content": content,  # Full content, not truncated
                 "content_length": len(content),
                 "tool_calls_count": tool_calls_count,
-                "message": f"Section {section_title} content generation completed"
-            }
+                "message": f"Section {section_title} content generation completed",
+            },
         )
 
     def log_section_full_complete(
-        self,
-        section_title: str,
-        section_index: int,
-        full_content: str
+        self, section_title: str, section_index: int, full_content: str
     ):
         """
         Record section generation completion
@@ -304,8 +301,8 @@ class ReportLogger:
             details={
                 "content": full_content,
                 "content_length": len(full_content),
-                "message": f"Section {section_title} generation completed"
-            }
+                "message": f"Section {section_title} generation completed",
+            },
         )
 
     def log_report_complete(self, total_sections: int, total_time_seconds: float):
@@ -316,8 +313,8 @@ class ReportLogger:
             details={
                 "total_sections": total_sections,
                 "total_time_seconds": round(total_time_seconds, 2),
-                "message": "Report generation completed"
-            }
+                "message": "Report generation completed",
+            },
         )
 
     def log_error(self, error_message: str, stage: str, section_title: str = None):
@@ -329,8 +326,8 @@ class ReportLogger:
             section_index=None,
             details={
                 "error": error_message,
-                "message": f"Error occurred: {error_message}"
-            }
+                "message": f"Error occurred: {error_message}",
+            },
         )
 
 
@@ -351,7 +348,7 @@ class ReportConsoleLogger:
         """
         self.report_id = report_id
         self.log_file_path = os.path.join(
-            Config.UPLOAD_FOLDER, 'reports', report_id, 'console_log.txt'
+            Config.UPLOAD_FOLDER, "reports", report_id, "console_log.txt"
         )
         self._ensure_log_file()
         self._file_handler = None
@@ -368,23 +365,20 @@ class ReportConsoleLogger:
 
         # Create file handler
         self._file_handler = logging.FileHandler(
-            self.log_file_path,
-            mode='a',
-            encoding='utf-8'
+            self.log_file_path, mode="a", encoding="utf-8"
         )
         self._file_handler.setLevel(logging.INFO)
 
         # Use the same concise format as the console
         formatter = logging.Formatter(
-            '[%(asctime)s] %(levelname)s: %(message)s',
-            datefmt='%H:%M:%S'
+            "[%(asctime)s] %(levelname)s: %(message)s", datefmt="%H:%M:%S"
         )
         self._file_handler.setFormatter(formatter)
 
         # Attach to report_agent related loggers
         loggers_to_attach = [
-            'mirofish.report_agent',
-            'mirofish.graph_tools',
+            "mirofish.report_agent",
+            "mirofish.graph_tools",
         ]
 
         for logger_name in loggers_to_attach:
@@ -399,8 +393,8 @@ class ReportConsoleLogger:
 
         if self._file_handler:
             loggers_to_detach = [
-                'mirofish.report_agent',
-                'mirofish.graph_tools',
+                "mirofish.report_agent",
+                "mirofish.graph_tools",
             ]
 
             for logger_name in loggers_to_detach:
@@ -418,6 +412,7 @@ class ReportConsoleLogger:
 
 class ReportStatus(str, Enum):
     """Report status"""
+
     PENDING = "pending"
     PLANNING = "planning"
     GENERATING = "generating"
@@ -428,14 +423,12 @@ class ReportStatus(str, Enum):
 @dataclass
 class ReportSection:
     """Report section"""
+
     title: str
     content: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "title": self.title,
-            "content": self.content
-        }
+        return {"title": self.title, "content": self.content}
 
     def to_markdown(self, level: int = 2) -> str:
         """Convert to Markdown format"""
@@ -448,6 +441,7 @@ class ReportSection:
 @dataclass
 class ReportOutline:
     """Report outline"""
+
     title: str
     summary: str
     sections: List[ReportSection]
@@ -456,7 +450,7 @@ class ReportOutline:
         return {
             "title": self.title,
             "summary": self.summary,
-            "sections": [s.to_dict() for s in self.sections]
+            "sections": [s.to_dict() for s in self.sections],
         }
 
     def to_markdown(self) -> str:
@@ -471,6 +465,7 @@ class ReportOutline:
 @dataclass
 class Report:
     """Complete report"""
+
     report_id: str
     simulation_id: str
     graph_id: str
@@ -493,7 +488,7 @@ class Report:
             "markdown_content": self.markdown_content,
             "created_at": self.created_at,
             "completed_at": self.completed_at,
-            "error": self.error
+            "error": self.error,
         }
 
 
@@ -576,6 +571,8 @@ Workflow:
 - Interview summary and viewpoint comparison
 
 [Important] The OASIS simulation environment must be running to use this feature!"""
+
+TOOL_DESC_LIST_TASKS = "list_tasks: Returns all simulation tasks created during the agent discussion — who assigned them, who they were assigned to, current status, and any outputs from completed tasks. Use this tool to surface actionable outcomes from the simulation."
 
 # ── Outline Planning Prompt ──
 
@@ -944,7 +941,7 @@ class ReportAgent:
         simulation_id: str,
         simulation_requirement: str,
         llm_client: Optional[LLMClient] = None,
-        graph_tools: Optional[GraphToolsService] = None
+        graph_tools: Optional[GraphToolsService] = None,
     ):
         """
         Initialize the Report Agent
@@ -965,7 +962,9 @@ class ReportAgent:
 
         # Detect report language from simulation requirement
         self.report_language = _detect_language(simulation_requirement)
-        logger.info(f"Detected report language: {self.report_language} (based on simulation requirement)")
+        logger.info(
+            f"Detected report language: {self.report_language} (based on simulation requirement)"
+        )
 
         # MCP manager handle (may be None if MCP is disabled)
         self._mcp_manager = None
@@ -980,7 +979,9 @@ class ReportAgent:
         # Console logger (initialized in generate_report)
         self.console_logger: Optional[ReportConsoleLogger] = None
 
-        logger.info(f"ReportAgent initialized: graph_id={graph_id}, simulation_id={simulation_id}")
+        logger.info(
+            f"ReportAgent initialized: graph_id={graph_id}, simulation_id={simulation_id}"
+        )
 
     def _init_mcp(self) -> None:
         """Initialise MCP manager reference if MCP is enabled."""
@@ -988,11 +989,14 @@ class ReportAgent:
             return
         try:
             from ..utils.mcp_manager import get_mcp_manager_sync
+
             mgr = get_mcp_manager_sync()
             if mgr is not None and mgr.is_connected and mgr.has_tools():
                 self._mcp_manager = mgr
                 self._mcp_tools_desc = mgr.get_react_tools_description()
-                logger.info(f"Report agent MCP enabled — {len(mgr.get_tools())} external tool(s)")
+                logger.info(
+                    f"Report agent MCP enabled — {len(mgr.get_tools())} external tool(s)"
+                )
         except Exception as exc:
             logger.warning(f"Could not attach MCP tools to report agent: {exc}")
 
@@ -1004,40 +1008,56 @@ class ReportAgent:
                 "description": TOOL_DESC_INSIGHT_FORGE,
                 "parameters": {
                     "query": "The question or topic you want to analyze in depth",
-                    "report_context": "Context of the current report section (optional, helps generate more precise sub-questions)"
-                }
+                    "report_context": "Context of the current report section (optional, helps generate more precise sub-questions)",
+                },
             },
             "panorama_search": {
                 "name": "panorama_search",
                 "description": TOOL_DESC_PANORAMA_SEARCH,
                 "parameters": {
                     "query": "Search query, used for relevance ranking",
-                    "include_expired": "Whether to include expired/historical content (default True)"
-                }
+                    "include_expired": "Whether to include expired/historical content (default True)",
+                },
             },
             "quick_search": {
                 "name": "quick_search",
                 "description": TOOL_DESC_QUICK_SEARCH,
                 "parameters": {
                     "query": "Search query string",
-                    "limit": "Number of results to return (optional, default 10)"
-                }
+                    "limit": "Number of results to return (optional, default 10)",
+                },
             },
             "interview_agents": {
                 "name": "interview_agents",
                 "description": TOOL_DESC_INTERVIEW_AGENTS,
                 "parameters": {
                     "interview_topic": "Interview topic or requirement description (e.g., 'Understand students' views on the dormitory formaldehyde incident')",
-                    "max_agents": "Maximum number of Agents to interview (optional, default 5, max 10)"
-                }
-            }
+                    "max_agents": "Maximum number of Agents to interview (optional, default 5, max 10)",
+                },
+            },
+            "list_tasks": {
+                "name": "list_tasks",
+                "description": TOOL_DESC_LIST_TASKS,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status_filter": {
+                            "type": "string",
+                            "description": "Optional. Filter by status: 'open', 'in_progress', 'done', 'blocked'. Leave empty to return all tasks.",
+                        }
+                    },
+                    "required": [],
+                },
+            },
         }
 
         # --- Dynamically register MCP tools (prefixed with mcp__) ---
         if self._mcp_manager is not None:
             for mcp_tool in self._mcp_manager.get_tools():
                 prefixed_name = f"mcp__{mcp_tool.name}"
-                input_schema = mcp_tool.inputSchema if hasattr(mcp_tool, 'inputSchema') else {}
+                input_schema = (
+                    mcp_tool.inputSchema if hasattr(mcp_tool, "inputSchema") else {}
+                )
                 props = (input_schema or {}).get("properties", {})
                 param_desc = {}
                 for pname, pschema in props.items():
@@ -1046,14 +1066,19 @@ class ReportAgent:
                     param_desc[pname] = f"{pdesc} ({ptype})" if pdesc else f"({ptype})"
                 tools[prefixed_name] = {
                     "name": prefixed_name,
-                    "description": mcp_tool.description or "(MCP tool — no description)",
+                    "description": mcp_tool.description
+                    or "(MCP tool — no description)",
                     "parameters": param_desc,
                 }
-            logger.info(f"Registered {len(self._mcp_manager.get_tools())} MCP tool(s) in report agent")
+            logger.info(
+                f"Registered {len(self._mcp_manager.get_tools())} MCP tool(s) in report agent"
+            )
 
         return tools
 
-    def _execute_tool(self, tool_name: str, parameters: Dict[str, Any], report_context: str = "") -> str:
+    def _execute_tool(
+        self, tool_name: str, parameters: Dict[str, Any], report_context: str = ""
+    ) -> str:
         """
         Execute a tool invocation
 
@@ -1075,7 +1100,7 @@ class ReportAgent:
                     graph_id=self.graph_id,
                     query=query,
                     simulation_requirement=self.simulation_requirement,
-                    report_context=ctx
+                    report_context=ctx,
                 )
                 return result.to_text()
 
@@ -1084,11 +1109,9 @@ class ReportAgent:
                 query = parameters.get("query", "")
                 include_expired = parameters.get("include_expired", True)
                 if isinstance(include_expired, str):
-                    include_expired = include_expired.lower() in ['true', '1', 'yes']
+                    include_expired = include_expired.lower() in ["true", "1", "yes"]
                 result = self.graph_tools.panorama_search(
-                    graph_id=self.graph_id,
-                    query=query,
-                    include_expired=include_expired
+                    graph_id=self.graph_id, query=query, include_expired=include_expired
                 )
                 return result.to_text()
 
@@ -1099,15 +1122,15 @@ class ReportAgent:
                 if isinstance(limit, str):
                     limit = int(limit)
                 result = self.graph_tools.quick_search(
-                    graph_id=self.graph_id,
-                    query=query,
-                    limit=limit
+                    graph_id=self.graph_id, query=query, limit=limit
                 )
                 return result.to_text()
 
             elif tool_name == "interview_agents":
                 # Deep interview - call the real OASIS interview API to get simulation Agent responses (dual platform)
-                interview_topic = parameters.get("interview_topic", parameters.get("query", ""))
+                interview_topic = parameters.get(
+                    "interview_topic", parameters.get("query", "")
+                )
                 max_agents = parameters.get("max_agents", 5)
                 if isinstance(max_agents, str):
                     max_agents = int(max_agents)
@@ -1116,9 +1139,41 @@ class ReportAgent:
                     simulation_id=self.simulation_id,
                     interview_requirement=interview_topic,
                     simulation_requirement=self.simulation_requirement,
-                    max_agents=max_agents
+                    max_agents=max_agents,
                 )
                 return result.to_text()
+
+            elif tool_name == "list_tasks":
+                try:
+                    status_filter = parameters.get("status_filter", "").strip() or None
+                    store = get_simulation_task_store(self.simulation_id)
+                    tasks = store.list_tasks(status=status_filter)
+                    if not tasks:
+                        return "No simulation tasks found."
+
+                    status_order = ["open", "in_progress", "blocked", "done"]
+                    grouped: Dict[str, list] = {s: [] for s in status_order}
+                    for t in tasks:
+                        grouped.setdefault(t.status, []).append(t)
+
+                    lines = [f"## Simulation Tasks ({len(tasks)} total)", ""]
+                    for s in status_order:
+                        group = grouped.get(s, [])
+                        if not group:
+                            continue
+                        lines.append(f"**[{s.upper()}]** ({len(group)})")
+                        for t in group:
+                            short_id = t.task_id[:8]
+                            lines.append(
+                                f'- [{short_id}] "{t.title}" — assigned by {t.assigned_by} → {t.assigned_to}'
+                            )
+                            if t.output:
+                                lines.append(f"  Output: {t.output}")
+                        lines.append("")
+                    return "\n".join(lines).rstrip()
+                except Exception as e:
+                    logger.error(f"list_tasks failed: {e}")
+                    return f"list_tasks failed: {e}"
 
             # ========== Backward-compatible legacy tools (internally redirect to new tools) ==========
 
@@ -1134,8 +1189,7 @@ class ReportAgent:
             elif tool_name == "get_entity_summary":
                 entity_name = parameters.get("entity_name", "")
                 result = self.graph_tools.get_entity_summary(
-                    graph_id=self.graph_id,
-                    entity_name=entity_name
+                    graph_id=self.graph_id, entity_name=entity_name
                 )
                 return json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -1143,13 +1197,14 @@ class ReportAgent:
                 # Redirect to insight_forge, as it is more powerful
                 logger.info("get_simulation_context redirected to insight_forge")
                 query = parameters.get("query", self.simulation_requirement)
-                return self._execute_tool("insight_forge", {"query": query}, report_context)
+                return self._execute_tool(
+                    "insight_forge", {"query": query}, report_context
+                )
 
             elif tool_name == "get_entities_by_type":
                 entity_type = parameters.get("entity_type", "")
                 nodes = self.graph_tools.get_entities_by_type(
-                    graph_id=self.graph_id,
-                    entity_type=entity_type
+                    graph_id=self.graph_id, entity_type=entity_type
                 )
                 result = [n.to_dict() for n in nodes]
                 return json.dumps(result, ensure_ascii=False, indent=2)
@@ -1157,7 +1212,7 @@ class ReportAgent:
             else:
                 # --- MCP tool routing: names prefixed with mcp__ ---
                 if tool_name.startswith("mcp__") and self._mcp_manager is not None:
-                    actual_name = tool_name[len("mcp__"):]
+                    actual_name = tool_name[len("mcp__") :]
                     logger.info(f"Routing to MCP tool: {actual_name}")
                     return self._mcp_manager.call_tool_sync(actual_name, parameters)
 
@@ -1170,7 +1225,13 @@ class ReportAgent:
     # Set of valid tool names, used for bare JSON fallback parsing validation.
     # This is the base set; _parse_tool_calls also accepts any name in self.tools
     # (which includes dynamically-registered MCP tools).
-    VALID_TOOL_NAMES = {"insight_forge", "panorama_search", "quick_search", "interview_agents"}
+    VALID_TOOL_NAMES = {
+        "insight_forge",
+        "panorama_search",
+        "quick_search",
+        "interview_agents",
+        "list_tasks",
+    }
 
     def _parse_tool_calls(self, response: str) -> List[Dict[str, Any]]:
         """
@@ -1183,7 +1244,7 @@ class ReportAgent:
         tool_calls = []
 
         # Format 1: XML style (standard format)
-        xml_pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
+        xml_pattern = r"<tool_call>\s*(\{.*?\})\s*</tool_call>"
         for match in re.finditer(xml_pattern, response, re.DOTALL):
             try:
                 call_data = json.loads(match.group(1))
@@ -1197,7 +1258,7 @@ class ReportAgent:
         # Format 2: Fallback - LLM directly outputs bare JSON (without <tool_call> tags)
         # Only attempted when Format 1 does not match, to avoid false matches in body text JSON
         stripped = response.strip()
-        if stripped.startswith('{') and stripped.endswith('}'):
+        if stripped.startswith("{") and stripped.endswith("}"):
             try:
                 call_data = json.loads(stripped)
                 if self._is_valid_tool_call(call_data):
@@ -1238,7 +1299,9 @@ class ReportAgent:
         """Generate tool description text"""
         desc_parts = ["Available tools:"]
         for name, tool in self.tools.items():
-            params_desc = ", ".join([f"{k}: {v}" for k, v in tool["parameters"].items()])
+            params_desc = ", ".join(
+                [f"{k}: {v}" for k, v in tool["parameters"].items()]
+            )
             desc_parts.append(f"- {name}: {tool['description']}")
             if params_desc:
                 desc_parts.append(f"  Parameters: {params_desc}")
@@ -1249,7 +1312,7 @@ class ReportAgent:
         content: str,
         section_title: str,
         messages: List[Dict[str, str]],
-        section_index: int
+        section_index: int,
     ) -> str:
         """
         Check for language drift in the generated content and attempt regeneration if necessary
@@ -1285,15 +1348,12 @@ class ReportAgent:
             )
 
             # Append the drift detection to messages and attempt one more generation
-            messages.append({
-                "role": "user",
-                "content": enforcement_prompt
-            })
+            messages.append({"role": "user", "content": enforcement_prompt})
 
             regenerated = self.llm.chat(
                 messages=messages,
                 temperature=0.3,  # Lower temperature for stricter adherence
-                max_tokens=4096
+                max_tokens=4096,
             )
 
             if regenerated:
@@ -1303,7 +1363,9 @@ class ReportAgent:
 
                 # Check if regeneration succeeded
                 if _detect_language(regenerated) == "en":
-                    logger.info(f"Section '{section_title}' regenerated successfully in English")
+                    logger.info(
+                        f"Section '{section_title}' regenerated successfully in English"
+                    )
                     return regenerated
                 else:
                     logger.error(
@@ -1311,13 +1373,14 @@ class ReportAgent:
                         "Returning original content with warning."
                     )
             else:
-                logger.error(f"Section '{section_title}' regeneration returned None. Returning original content.")
+                logger.error(
+                    f"Section '{section_title}' regeneration returned None. Returning original content."
+                )
 
         return content
 
     def plan_outline(
-        self,
-        progress_callback: Optional[Callable] = None
+        self, progress_callback: Optional[Callable] = None
     ) -> ReportOutline:
         """
         Plan the report outline
@@ -1337,8 +1400,7 @@ class ReportAgent:
 
         # First retrieve simulation context
         context = self.graph_tools.get_simulation_context(
-            graph_id=self.graph_id,
-            simulation_requirement=self.simulation_requirement
+            graph_id=self.graph_id, simulation_requirement=self.simulation_requirement
         )
 
         if progress_callback:
@@ -1347,20 +1409,24 @@ class ReportAgent:
         system_prompt = PLAN_SYSTEM_PROMPT
         user_prompt = PLAN_USER_PROMPT_TEMPLATE.format(
             simulation_requirement=self.simulation_requirement,
-            total_nodes=context.get('graph_statistics', {}).get('total_nodes', 0),
-            total_edges=context.get('graph_statistics', {}).get('total_edges', 0),
-            entity_types=list(context.get('graph_statistics', {}).get('entity_types', {}).keys()),
-            total_entities=context.get('total_entities', 0),
-            related_facts_json=json.dumps(context.get('related_facts', [])[:10], ensure_ascii=False, indent=2),
+            total_nodes=context.get("graph_statistics", {}).get("total_nodes", 0),
+            total_edges=context.get("graph_statistics", {}).get("total_edges", 0),
+            entity_types=list(
+                context.get("graph_statistics", {}).get("entity_types", {}).keys()
+            ),
+            total_entities=context.get("total_entities", 0),
+            related_facts_json=json.dumps(
+                context.get("related_facts", [])[:10], ensure_ascii=False, indent=2
+            ),
         )
 
         try:
             response = self.llm.chat_json(
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.3
+                temperature=0.3,
             )
 
             if progress_callback:
@@ -1369,15 +1435,14 @@ class ReportAgent:
             # Parse outline
             sections = []
             for section_data in response.get("sections", []):
-                sections.append(ReportSection(
-                    title=section_data.get("title", ""),
-                    content=""
-                ))
+                sections.append(
+                    ReportSection(title=section_data.get("title", ""), content="")
+                )
 
             outline = ReportOutline(
                 title=response.get("title", "Simulation Analysis Report"),
                 summary=response.get("summary", ""),
-                sections=sections
+                sections=sections,
             )
 
             if progress_callback:
@@ -1395,8 +1460,8 @@ class ReportAgent:
                 sections=[
                     ReportSection(title="Prediction Scenario and Core Findings"),
                     ReportSection(title="Population Behavior Prediction Analysis"),
-                    ReportSection(title="Trend Outlook and Risk Alerts")
-                ]
+                    ReportSection(title="Trend Outlook and Risk Alerts"),
+                ],
             )
 
     def _generate_section_react(
@@ -1405,7 +1470,7 @@ class ReportAgent:
         outline: ReportOutline,
         previous_sections: List[str],
         progress_callback: Optional[Callable] = None,
-        section_index: int = 0
+        section_index: int = 0,
     ) -> str:
         """
         Generate a single section using the ReACT pattern
@@ -1463,7 +1528,7 @@ class ReportAgent:
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_prompt},
         ]
 
         # ReACT loop
@@ -1472,7 +1537,12 @@ class ReportAgent:
         min_tool_calls = 3  # Minimum tool invocations
         conflict_retries = 0  # Consecutive conflicts where tool call and Final Answer appear simultaneously
         used_tools = set()  # Track tools that have been invoked
-        all_tools = {"insight_forge", "panorama_search", "quick_search", "interview_agents"}
+        all_tools = {
+            "insight_forge",
+            "panorama_search",
+            "quick_search",
+            "interview_agents",
+        }
 
         # Report context, used for InsightForge sub-question generation
         report_context = f"Section title: {section.title}\nSimulation requirement: {self.simulation_requirement}"
@@ -1482,23 +1552,30 @@ class ReportAgent:
                 progress_callback(
                     "generating",
                     int((iteration / max_iterations) * 100),
-                    f"Deep retrieval and writing in progress ({tool_calls_count}/{self.MAX_TOOL_CALLS_PER_SECTION})"
+                    f"Deep retrieval and writing in progress ({tool_calls_count}/{self.MAX_TOOL_CALLS_PER_SECTION})",
                 )
 
             # Call LLM
             response = self.llm.chat(
-                messages=messages,
-                temperature=0.5,
-                max_tokens=4096
+                messages=messages, temperature=0.5, max_tokens=4096
             )
 
             # Check if LLM returned None (API exception or empty content)
             if response is None:
-                logger.warning(f"Section {section.title} iteration {iteration + 1}: LLM returned None")
+                logger.warning(
+                    f"Section {section.title} iteration {iteration + 1}: LLM returned None"
+                )
                 # If iterations remain, add message and retry
                 if iteration < max_iterations - 1:
-                    messages.append({"role": "assistant", "content": "(empty response)"})
-                    messages.append({"role": "user", "content": "Please continue generating content."})
+                    messages.append(
+                        {"role": "assistant", "content": "(empty response)"}
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Please continue generating content.",
+                        }
+                    )
                     continue
                 # Last iteration also returned None, break out to forced finalization
                 break
@@ -1521,16 +1598,18 @@ class ReportAgent:
                 if conflict_retries <= 2:
                     # First two times: discard this response, ask LLM to reply again
                     messages.append({"role": "assistant", "content": response})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "[Format Error] You included both a tool call and Final Answer in a single reply, which is not allowed.\n"
-                            "Each reply can only do one of the following two things:\n"
-                            "- Invoke a tool (output a <tool_call> block, do not write Final Answer)\n"
-                            "- Output final content (start with 'Final Answer:', do not include <tool_call>)\n"
-                            "Please reply again, doing only one of these."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "[Format Error] You included both a tool call and Final Answer in a single reply, which is not allowed.\n"
+                                "Each reply can only do one of the following two things:\n"
+                                "- Invoke a tool (output a <tool_call> block, do not write Final Answer)\n"
+                                "- Output final content (start with 'Final Answer:', do not include <tool_call>)\n"
+                                "Please reply again, doing only one of these."
+                            ),
+                        }
+                    )
                     continue
                 else:
                     # Third time: degrade handling, truncate to first tool call and force execution
@@ -1538,9 +1617,9 @@ class ReportAgent:
                         f"Section {section.title}: {conflict_retries} consecutive conflicts, "
                         "degrading to truncated execution of first tool call"
                     )
-                    first_tool_end = response.find('</tool_call>')
+                    first_tool_end = response.find("</tool_call>")
                     if first_tool_end != -1:
-                        response = response[:first_tool_end + len('</tool_call>')]
+                        response = response[: first_tool_end + len("</tool_call>")]
                         tool_calls = self._parse_tool_calls(response)
                         has_tool_calls = bool(tool_calls)
                     has_final_answer = False
@@ -1554,7 +1633,7 @@ class ReportAgent:
                     response=response,
                     iteration=iteration + 1,
                     has_tool_calls=has_tool_calls,
-                    has_final_answer=has_final_answer
+                    has_final_answer=has_final_answer,
                 )
 
             # ── Case 1: LLM output Final Answer ──
@@ -1563,27 +1642,32 @@ class ReportAgent:
                 if tool_calls_count < min_tool_calls:
                     messages.append({"role": "assistant", "content": response})
                     unused_tools = all_tools - used_tools
-                    unused_hint = f"(These tools have not been used yet; consider trying them: {', '.join(unused_tools)})" if unused_tools else ""
-                    messages.append({
-                        "role": "user",
-                        "content": REACT_INSUFFICIENT_TOOLS_MSG.format(
-                            tool_calls_count=tool_calls_count,
-                            min_tool_calls=min_tool_calls,
-                            unused_hint=unused_hint,
-                        ),
-                    })
+                    unused_hint = (
+                        f"(These tools have not been used yet; consider trying them: {', '.join(unused_tools)})"
+                        if unused_tools
+                        else ""
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": REACT_INSUFFICIENT_TOOLS_MSG.format(
+                                tool_calls_count=tool_calls_count,
+                                min_tool_calls=min_tool_calls,
+                                unused_hint=unused_hint,
+                            ),
+                        }
+                    )
                     continue
 
                 # Normal completion
                 final_answer = response.split("Final Answer:")[-1].strip()
-                logger.info(f"Section {section.title} generation completed (tool invocations: {tool_calls_count})")
+                logger.info(
+                    f"Section {section.title} generation completed (tool invocations: {tool_calls_count})"
+                )
 
                 # Check for language drift and regenerate if needed
                 final_answer = self._check_language_drift(
-                    final_answer,
-                    section.title,
-                    messages,
-                    section_index
+                    final_answer, section.title, messages, section_index
                 )
 
                 if self.report_logger:
@@ -1591,7 +1675,7 @@ class ReportAgent:
                         section_title=section.title,
                         section_index=section_index,
                         content=final_answer,
-                        tool_calls_count=tool_calls_count
+                        tool_calls_count=tool_calls_count,
                     )
                 return final_answer
 
@@ -1600,19 +1684,23 @@ class ReportAgent:
                 # Tool quota exhausted -> explicitly notify, require Final Answer output
                 if tool_calls_count >= self.MAX_TOOL_CALLS_PER_SECTION:
                     messages.append({"role": "assistant", "content": response})
-                    messages.append({
-                        "role": "user",
-                        "content": REACT_TOOL_LIMIT_MSG.format(
-                            tool_calls_count=tool_calls_count,
-                            max_tool_calls=self.MAX_TOOL_CALLS_PER_SECTION,
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": REACT_TOOL_LIMIT_MSG.format(
+                                tool_calls_count=tool_calls_count,
+                                max_tool_calls=self.MAX_TOOL_CALLS_PER_SECTION,
+                            ),
+                        }
+                    )
                     continue
 
                 # Execute only the first tool call
                 call = tool_calls[0]
                 if len(tool_calls) > 1:
-                    logger.info(f"LLM attempted to invoke {len(tool_calls)} tools, executing only the first: {call['name']}")
+                    logger.info(
+                        f"LLM attempted to invoke {len(tool_calls)} tools, executing only the first: {call['name']}"
+                    )
 
                 if self.report_logger:
                     self.report_logger.log_tool_call(
@@ -1620,13 +1708,13 @@ class ReportAgent:
                         section_index=section_index,
                         tool_name=call["name"],
                         parameters=call.get("parameters", {}),
-                        iteration=iteration + 1
+                        iteration=iteration + 1,
                     )
 
                 result = self._execute_tool(
                     call["name"],
                     call.get("parameters", {}),
-                    report_context=report_context
+                    report_context=report_context,
                 )
 
                 if self.report_logger:
@@ -1635,30 +1723,34 @@ class ReportAgent:
                         section_index=section_index,
                         tool_name=call["name"],
                         result=result,
-                        iteration=iteration + 1
+                        iteration=iteration + 1,
                     )
 
                 tool_calls_count += 1
-                used_tools.add(call['name'])
+                used_tools.add(call["name"])
 
                 # Build unused tools hint
                 unused_tools = all_tools - used_tools
                 unused_hint = ""
                 if unused_tools and tool_calls_count < self.MAX_TOOL_CALLS_PER_SECTION:
-                    unused_hint = REACT_UNUSED_TOOLS_HINT.format(unused_list=", ".join(unused_tools))
+                    unused_hint = REACT_UNUSED_TOOLS_HINT.format(
+                        unused_list=", ".join(unused_tools)
+                    )
 
                 messages.append({"role": "assistant", "content": response})
-                messages.append({
-                    "role": "user",
-                    "content": REACT_OBSERVATION_TEMPLATE.format(
-                        tool_name=call["name"],
-                        result=result,
-                        tool_calls_count=tool_calls_count,
-                        max_tool_calls=self.MAX_TOOL_CALLS_PER_SECTION,
-                        used_tools_str=", ".join(used_tools),
-                        unused_hint=unused_hint,
-                    ),
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": REACT_OBSERVATION_TEMPLATE.format(
+                            tool_name=call["name"],
+                            result=result,
+                            tool_calls_count=tool_calls_count,
+                            max_tool_calls=self.MAX_TOOL_CALLS_PER_SECTION,
+                            used_tools_str=", ".join(used_tools),
+                            unused_hint=unused_hint,
+                        ),
+                    }
+                )
                 continue
 
             # ── Case 3: Neither tool call nor Final Answer ──
@@ -1667,29 +1759,34 @@ class ReportAgent:
             if tool_calls_count < min_tool_calls:
                 # Insufficient tool invocations, recommend unused tools
                 unused_tools = all_tools - used_tools
-                unused_hint = f"(These tools have not been used yet; consider trying them: {', '.join(unused_tools)})" if unused_tools else ""
+                unused_hint = (
+                    f"(These tools have not been used yet; consider trying them: {', '.join(unused_tools)})"
+                    if unused_tools
+                    else ""
+                )
 
-                messages.append({
-                    "role": "user",
-                    "content": REACT_INSUFFICIENT_TOOLS_MSG_ALT.format(
-                        tool_calls_count=tool_calls_count,
-                        min_tool_calls=min_tool_calls,
-                        unused_hint=unused_hint,
-                    ),
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": REACT_INSUFFICIENT_TOOLS_MSG_ALT.format(
+                            tool_calls_count=tool_calls_count,
+                            min_tool_calls=min_tool_calls,
+                            unused_hint=unused_hint,
+                        ),
+                    }
+                )
                 continue
 
             # Sufficient tool invocations, LLM output content without "Final Answer:" prefix
             # Directly use this content as the final answer, avoid idle loops
-            logger.info(f"Section {section.title}: 'Final Answer:' prefix not detected, adopting LLM output as final content (tool invocations: {tool_calls_count})")
+            logger.info(
+                f"Section {section.title}: 'Final Answer:' prefix not detected, adopting LLM output as final content (tool invocations: {tool_calls_count})"
+            )
             final_answer = response.strip()
 
             # Check for language drift and regenerate if needed
             final_answer = self._check_language_drift(
-                final_answer,
-                section.title,
-                messages,
-                section_index
+                final_answer, section.title, messages, section_index
             )
 
             if self.report_logger:
@@ -1697,23 +1794,23 @@ class ReportAgent:
                     section_title=section.title,
                     section_index=section_index,
                     content=final_answer,
-                    tool_calls_count=tool_calls_count
+                    tool_calls_count=tool_calls_count,
                 )
             return final_answer
 
         # Maximum iterations reached, force content generation
-        logger.warning(f"Section {section.title} reached maximum iterations, forcing generation")
+        logger.warning(
+            f"Section {section.title} reached maximum iterations, forcing generation"
+        )
         messages.append({"role": "user", "content": REACT_FORCE_FINAL_MSG})
 
-        response = self.llm.chat(
-            messages=messages,
-            temperature=0.5,
-            max_tokens=4096
-        )
+        response = self.llm.chat(messages=messages, temperature=0.5, max_tokens=4096)
 
         # Check if LLM returned None during forced finalization
         if response is None:
-            logger.error(f"Section {section.title}: LLM returned None during forced finalization, using default error message")
+            logger.error(
+                f"Section {section.title}: LLM returned None during forced finalization, using default error message"
+            )
             final_answer = f"(This section failed to generate: LLM returned empty response, please try again later)"
         elif "Final Answer:" in response:
             final_answer = response.split("Final Answer:")[-1].strip()
@@ -1723,10 +1820,7 @@ class ReportAgent:
         # Check for language drift and regenerate if needed (only if we have valid content)
         if response is not None and not final_answer.startswith("(This section failed"):
             final_answer = self._check_language_drift(
-                final_answer,
-                section.title,
-                messages,
-                section_index
+                final_answer, section.title, messages, section_index
             )
 
         # Record section content generation completion log
@@ -1735,7 +1829,7 @@ class ReportAgent:
                 section_title=section.title,
                 section_index=section_index,
                 content=final_answer,
-                tool_calls_count=tool_calls_count
+                tool_calls_count=tool_calls_count,
             )
 
         return final_answer
@@ -1743,7 +1837,7 @@ class ReportAgent:
     def generate_report(
         self,
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
-        report_id: Optional[str] = None
+        report_id: Optional[str] = None,
     ) -> Report:
         """
         Generate the complete report (real-time section-by-section output)
@@ -1779,7 +1873,7 @@ class ReportAgent:
             graph_id=self.graph_id,
             simulation_requirement=self.simulation_requirement,
             status=ReportStatus.PENDING,
-            created_at=datetime.now().isoformat()
+            created_at=datetime.now().isoformat(),
         )
 
         # List of completed section titles (for progress tracking)
@@ -1794,23 +1888,25 @@ class ReportAgent:
             self.report_logger.log_start(
                 simulation_id=self.simulation_id,
                 graph_id=self.graph_id,
-                simulation_requirement=self.simulation_requirement
+                simulation_requirement=self.simulation_requirement,
             )
 
             # Initialize console logger (console_log.txt)
             self.console_logger = ReportConsoleLogger(report_id)
 
             ReportManager.update_progress(
-                report_id, "pending", 0, "Initializing report...",
-                completed_sections=[]
+                report_id, "pending", 0, "Initializing report...", completed_sections=[]
             )
             ReportManager.save_report(report)
 
             # Phase 1: Plan outline
             report.status = ReportStatus.PLANNING
             ReportManager.update_progress(
-                report_id, "planning", 5, "Starting report outline planning...",
-                completed_sections=[]
+                report_id,
+                "planning",
+                5,
+                "Starting report outline planning...",
+                completed_sections=[],
             )
 
             # Record planning start log
@@ -1820,8 +1916,11 @@ class ReportAgent:
                 progress_callback("planning", 0, "Starting report outline planning...")
 
             outline = self.plan_outline(
-                progress_callback=lambda stage, prog, msg:
-                    progress_callback(stage, prog // 5, msg) if progress_callback else None
+                progress_callback=lambda stage, prog, msg: (
+                    progress_callback(stage, prog // 5, msg)
+                    if progress_callback
+                    else None
+                )
             )
             report.outline = outline
 
@@ -1831,8 +1930,11 @@ class ReportAgent:
             # Save outline to file
             ReportManager.save_outline(report_id, outline)
             ReportManager.update_progress(
-                report_id, "planning", 15, f"Outline planning completed, {len(outline.sections)} sections total",
-                completed_sections=[]
+                report_id,
+                "planning",
+                15,
+                f"Outline planning completed, {len(outline.sections)} sections total",
+                completed_sections=[],
             )
             ReportManager.save_report(report)
 
@@ -1850,17 +1952,19 @@ class ReportAgent:
 
                 # Update progress
                 ReportManager.update_progress(
-                    report_id, "generating", base_progress,
+                    report_id,
+                    "generating",
+                    base_progress,
                     f"Generating section: {section.title} ({section_num}/{total_sections})",
                     current_section=section.title,
-                    completed_sections=completed_section_titles
+                    completed_sections=completed_section_titles,
                 )
 
                 if progress_callback:
                     progress_callback(
                         "generating",
                         base_progress,
-                        f"Generating section: {section.title} ({section_num}/{total_sections})"
+                        f"Generating section: {section.title} ({section_num}/{total_sections})",
                     )
 
                 # Generate main section content
@@ -1868,13 +1972,14 @@ class ReportAgent:
                     section=section,
                     outline=outline,
                     previous_sections=generated_sections,
-                    progress_callback=lambda stage, prog, msg:
+                    progress_callback=lambda stage, prog, msg: (
                         progress_callback(
-                            stage,
-                            base_progress + int(prog * 0.7 / total_sections),
-                            msg
-                        ) if progress_callback else None,
-                    section_index=section_num
+                            stage, base_progress + int(prog * 0.7 / total_sections), msg
+                        )
+                        if progress_callback
+                        else None
+                    ),
+                    section_index=section_num,
                 )
 
                 section.content = section_content
@@ -1891,18 +1996,19 @@ class ReportAgent:
                     self.report_logger.log_section_full_complete(
                         section_title=section.title,
                         section_index=section_num,
-                        full_content=full_section_content.strip()
+                        full_content=full_section_content.strip(),
                     )
 
                 logger.info(f"Section saved: {report_id}/section_{section_num:02d}.md")
 
                 # Update progress
                 ReportManager.update_progress(
-                    report_id, "generating",
+                    report_id,
+                    "generating",
                     base_progress + int(70 / total_sections),
                     f"Section {section.title} completed",
                     current_section=None,
-                    completed_sections=completed_section_titles
+                    completed_sections=completed_section_titles,
                 )
 
             # Phase 3: Assemble complete report
@@ -1910,12 +2016,17 @@ class ReportAgent:
                 progress_callback("generating", 95, "Assembling complete report...")
 
             ReportManager.update_progress(
-                report_id, "generating", 95, "Assembling complete report...",
-                completed_sections=completed_section_titles
+                report_id,
+                "generating",
+                95,
+                "Assembling complete report...",
+                completed_sections=completed_section_titles,
             )
 
             # Use ReportManager to assemble the complete report
-            report.markdown_content = ReportManager.assemble_full_report(report_id, outline)
+            report.markdown_content = ReportManager.assemble_full_report(
+                report_id, outline
+            )
             report.status = ReportStatus.COMPLETED
             report.completed_at = datetime.now().isoformat()
 
@@ -1925,15 +2036,17 @@ class ReportAgent:
             # Record report completion log
             if self.report_logger:
                 self.report_logger.log_report_complete(
-                    total_sections=total_sections,
-                    total_time_seconds=total_time_seconds
+                    total_sections=total_sections, total_time_seconds=total_time_seconds
                 )
 
             # Save final report
             ReportManager.save_report(report)
             ReportManager.update_progress(
-                report_id, "completed", 100, "Report generation completed",
-                completed_sections=completed_section_titles
+                report_id,
+                "completed",
+                100,
+                "Report generation completed",
+                completed_sections=completed_section_titles,
             )
 
             if progress_callback:
@@ -1961,8 +2074,11 @@ class ReportAgent:
             try:
                 ReportManager.save_report(report)
                 ReportManager.update_progress(
-                    report_id, "failed", -1, f"Report generation failed: {str(e)}",
-                    completed_sections=completed_section_titles
+                    report_id,
+                    "failed",
+                    -1,
+                    f"Report generation failed: {str(e)}",
+                    completed_sections=completed_section_titles,
                 )
             except Exception:
                 pass  # Ignore errors when saving failure state
@@ -1975,9 +2091,7 @@ class ReportAgent:
             return report
 
     def chat(
-        self,
-        message: str,
-        chat_history: List[Dict[str, str]] = None
+        self, message: str, chat_history: List[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """
         Chat with the Report Agent
@@ -2013,7 +2127,9 @@ class ReportAgent:
 
         system_prompt = CHAT_SYSTEM_PROMPT_TEMPLATE.format(
             simulation_requirement=self.simulation_requirement,
-            report_content=report_content if report_content else "(No report available yet)",
+            report_content=(
+                report_content if report_content else "(No report available yet)"
+            ),
             tools_description=self._get_tools_description(),
         )
 
@@ -2025,33 +2141,32 @@ class ReportAgent:
             messages.append(h)
 
         # Add user message
-        messages.append({
-            "role": "user",
-            "content": message
-        })
+        messages.append({"role": "user", "content": message})
 
         # ReACT loop (simplified version)
         tool_calls_made = []
         max_iterations = 2  # Reduced iteration rounds
 
         for iteration in range(max_iterations):
-            response = self.llm.chat(
-                messages=messages,
-                temperature=0.5
-            )
+            response = self.llm.chat(messages=messages, temperature=0.5)
 
             # Parse tool calls
             tool_calls = self._parse_tool_calls(response)
 
             if not tool_calls:
                 # No tool calls, return response directly
-                clean_response = re.sub(r'<tool_call>.*?</tool_call>', '', response, flags=re.DOTALL)
-                clean_response = re.sub(r'\[TOOL_CALL\].*?\)', '', clean_response)
+                clean_response = re.sub(
+                    r"<tool_call>.*?</tool_call>", "", response, flags=re.DOTALL
+                )
+                clean_response = re.sub(r"\[TOOL_CALL\].*?\)", "", clean_response)
 
                 return {
                     "response": clean_response.strip(),
                     "tool_calls": tool_calls_made,
-                    "sources": [tc.get("parameters", {}).get("query", "") for tc in tool_calls_made]
+                    "sources": [
+                        tc.get("parameters", {}).get("query", "")
+                        for tc in tool_calls_made
+                    ],
                 }
 
             # Execute tool calls (limited quantity)
@@ -2060,34 +2175,38 @@ class ReportAgent:
                 if len(tool_calls_made) >= self.MAX_TOOL_CALLS_PER_CHAT:
                     break
                 result = self._execute_tool(call["name"], call.get("parameters", {}))
-                tool_results.append({
-                    "tool": call["name"],
-                    "result": result[:1500]  # Limit result length
-                })
+                tool_results.append(
+                    {
+                        "tool": call["name"],
+                        "result": result[:1500],  # Limit result length
+                    }
+                )
                 tool_calls_made.append(call)
 
             # Add results to messages
             messages.append({"role": "assistant", "content": response})
-            observation = "\n".join([f"[{r['tool']} result]\n{r['result']}" for r in tool_results])
-            messages.append({
-                "role": "user",
-                "content": observation + CHAT_OBSERVATION_SUFFIX
-            })
+            observation = "\n".join(
+                [f"[{r['tool']} result]\n{r['result']}" for r in tool_results]
+            )
+            messages.append(
+                {"role": "user", "content": observation + CHAT_OBSERVATION_SUFFIX}
+            )
 
         # Maximum iterations reached, get final response
-        final_response = self.llm.chat(
-            messages=messages,
-            temperature=0.5
-        )
+        final_response = self.llm.chat(messages=messages, temperature=0.5)
 
         # Clean response
-        clean_response = re.sub(r'<tool_call>.*?</tool_call>', '', final_response, flags=re.DOTALL)
-        clean_response = re.sub(r'\[TOOL_CALL\].*?\)', '', clean_response)
+        clean_response = re.sub(
+            r"<tool_call>.*?</tool_call>", "", final_response, flags=re.DOTALL
+        )
+        clean_response = re.sub(r"\[TOOL_CALL\].*?\)", "", clean_response)
 
         return {
             "response": clean_response.strip(),
             "tool_calls": tool_calls_made,
-            "sources": [tc.get("parameters", {}).get("query", "") for tc in tool_calls_made]
+            "sources": [
+                tc.get("parameters", {}).get("query", "") for tc in tool_calls_made
+            ],
         }
 
 
@@ -2110,7 +2229,7 @@ class ReportManager:
     """
 
     # Report storage directory
-    REPORTS_DIR = os.path.join(Config.UPLOAD_FOLDER, 'reports')
+    REPORTS_DIR = os.path.join(Config.UPLOAD_FOLDER, "reports")
 
     @classmethod
     def _ensure_reports_dir(cls):
@@ -2152,7 +2271,9 @@ class ReportManager:
     @classmethod
     def _get_section_path(cls, report_id: str, section_index: int) -> str:
         """Get the section Markdown file path"""
-        return os.path.join(cls._get_report_folder(report_id), f"section_{section_index:02d}.md")
+        return os.path.join(
+            cls._get_report_folder(report_id), f"section_{section_index:02d}.md"
+        )
 
     @classmethod
     def _get_agent_log_path(cls, report_id: str) -> str:
@@ -2187,28 +2308,23 @@ class ReportManager:
         log_path = cls._get_console_log_path(report_id)
 
         if not os.path.exists(log_path):
-            return {
-                "logs": [],
-                "total_lines": 0,
-                "from_line": 0,
-                "has_more": False
-            }
+            return {"logs": [], "total_lines": 0, "from_line": 0, "has_more": False}
 
         logs = []
         total_lines = 0
 
-        with open(log_path, 'r', encoding='utf-8') as f:
+        with open(log_path, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
                 total_lines = i + 1
                 if i >= from_line:
                     # Keep original log line, strip trailing newline
-                    logs.append(line.rstrip('\n\r'))
+                    logs.append(line.rstrip("\n\r"))
 
         return {
             "logs": logs,
             "total_lines": total_lines,
             "from_line": from_line,
-            "has_more": False  # Already read to end
+            "has_more": False,  # Already read to end
         }
 
     @classmethod
@@ -2245,17 +2361,12 @@ class ReportManager:
         log_path = cls._get_agent_log_path(report_id)
 
         if not os.path.exists(log_path):
-            return {
-                "logs": [],
-                "total_lines": 0,
-                "from_line": 0,
-                "has_more": False
-            }
+            return {"logs": [], "total_lines": 0, "from_line": 0, "has_more": False}
 
         logs = []
         total_lines = 0
 
-        with open(log_path, 'r', encoding='utf-8') as f:
+        with open(log_path, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
                 total_lines = i + 1
                 if i >= from_line:
@@ -2270,7 +2381,7 @@ class ReportManager:
             "logs": logs,
             "total_lines": total_lines,
             "from_line": from_line,
-            "has_more": False  # Already read to end
+            "has_more": False,  # Already read to end
         }
 
     @classmethod
@@ -2296,17 +2407,14 @@ class ReportManager:
         """
         cls._ensure_report_folder(report_id)
 
-        with open(cls._get_outline_path(report_id), 'w', encoding='utf-8') as f:
+        with open(cls._get_outline_path(report_id), "w", encoding="utf-8") as f:
             json.dump(outline.to_dict(), f, ensure_ascii=False, indent=2)
 
         logger.info(f"Outline saved: {report_id}")
 
     @classmethod
     def save_section(
-        cls,
-        report_id: str,
-        section_index: int,
-        section: ReportSection
+        cls, report_id: str, section_index: int, section: ReportSection
     ) -> str:
         """
         Save a single section
@@ -2332,7 +2440,7 @@ class ReportManager:
         # Save file
         file_suffix = f"section_{section_index:02d}.md"
         file_path = os.path.join(cls._get_report_folder(report_id), file_suffix)
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             f.write(md_content)
 
         logger.info(f"Section saved: {report_id}/{file_suffix}")
@@ -2359,7 +2467,7 @@ class ReportManager:
             return content
 
         content = content.strip()
-        lines = content.split('\n')
+        lines = content.split("\n")
         cleaned_lines = []
         skip_next_empty = False
 
@@ -2367,7 +2475,7 @@ class ReportManager:
             stripped = line.strip()
 
             # Check if this is a Markdown heading line
-            heading_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
+            heading_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
 
             if heading_match:
                 level = len(heading_match.group(1))
@@ -2375,7 +2483,9 @@ class ReportManager:
 
                 # Check if this is a duplicate of the section title (skip within first 5 lines)
                 if i < 5:
-                    if title_text == section_title or title_text.replace(' ', '') == section_title.replace(' ', ''):
+                    if title_text == section_title or title_text.replace(
+                        " ", ""
+                    ) == section_title.replace(" ", ""):
                         skip_next_empty = True
                         continue
 
@@ -2386,7 +2496,7 @@ class ReportManager:
                 continue
 
             # If the previous line was a skipped title and the current line is empty, also skip
-            if skip_next_empty and stripped == '':
+            if skip_next_empty and stripped == "":
                 skip_next_empty = False
                 continue
 
@@ -2394,17 +2504,17 @@ class ReportManager:
             cleaned_lines.append(line)
 
         # Remove leading blank lines
-        while cleaned_lines and cleaned_lines[0].strip() == '':
+        while cleaned_lines and cleaned_lines[0].strip() == "":
             cleaned_lines.pop(0)
 
         # Remove leading separator lines
-        while cleaned_lines and cleaned_lines[0].strip() in ['---', '***', '___']:
+        while cleaned_lines and cleaned_lines[0].strip() in ["---", "***", "___"]:
             cleaned_lines.pop(0)
             # Also remove blank lines after the separator
-            while cleaned_lines and cleaned_lines[0].strip() == '':
+            while cleaned_lines and cleaned_lines[0].strip() == "":
                 cleaned_lines.pop(0)
 
-        return '\n'.join(cleaned_lines)
+        return "\n".join(cleaned_lines)
 
     @classmethod
     def update_progress(
@@ -2414,7 +2524,7 @@ class ReportManager:
         progress: int,
         message: str,
         current_section: str = None,
-        completed_sections: List[str] = None
+        completed_sections: List[str] = None,
     ) -> None:
         """
         Update report generation progress
@@ -2429,10 +2539,10 @@ class ReportManager:
             "message": message,
             "current_section": current_section,
             "completed_sections": completed_sections or [],
-            "updated_at": datetime.now().isoformat()
+            "updated_at": datetime.now().isoformat(),
         }
 
-        with open(cls._get_progress_path(report_id), 'w', encoding='utf-8') as f:
+        with open(cls._get_progress_path(report_id), "w", encoding="utf-8") as f:
             json.dump(progress_data, f, ensure_ascii=False, indent=2)
 
     @classmethod
@@ -2443,7 +2553,7 @@ class ReportManager:
         if not os.path.exists(path):
             return None
 
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
     @classmethod
@@ -2460,20 +2570,22 @@ class ReportManager:
 
         sections = []
         for filename in sorted(os.listdir(folder)):
-            if filename.startswith('section_') and filename.endswith('.md'):
+            if filename.startswith("section_") and filename.endswith(".md"):
                 file_path = os.path.join(folder, filename)
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
 
                 # Parse section index from filename
-                parts = filename.replace('.md', '').split('_')
+                parts = filename.replace(".md", "").split("_")
                 section_index = int(parts[1])
 
-                sections.append({
-                    "filename": filename,
-                    "section_index": section_index,
-                    "content": content
-                })
+                sections.append(
+                    {
+                        "filename": filename,
+                        "section_index": section_index,
+                        "content": content,
+                    }
+                )
 
         return sections
 
@@ -2501,7 +2613,7 @@ class ReportManager:
 
         # Save complete report
         full_path = cls._get_report_markdown_path(report_id)
-        with open(full_path, 'w', encoding='utf-8') as f:
+        with open(full_path, "w", encoding="utf-8") as f:
             f.write(md_content)
 
         logger.info(f"Complete report assembled: {report_id}")
@@ -2525,7 +2637,7 @@ class ReportManager:
         """
         import re
 
-        lines = content.split('\n')
+        lines = content.split("\n")
         processed_lines = []
         prev_was_heading = False
 
@@ -2540,7 +2652,7 @@ class ReportManager:
             stripped = line.strip()
 
             # Check if this is a heading line
-            heading_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
+            heading_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
 
             if heading_match:
                 level = len(heading_match.group(1))
@@ -2550,7 +2662,7 @@ class ReportManager:
                 is_duplicate = False
                 for j in range(max(0, len(processed_lines) - 5), len(processed_lines)):
                     prev_line = processed_lines[j].strip()
-                    prev_match = re.match(r'^(#{1,6})\s+(.+)$', prev_line)
+                    prev_match = re.match(r"^(#{1,6})\s+(.+)$", prev_line)
                     if prev_match:
                         prev_title = prev_match.group(2).strip()
                         if prev_title == title:
@@ -2560,7 +2672,7 @@ class ReportManager:
                 if is_duplicate:
                     # Skip duplicate heading and trailing blank lines
                     i += 1
-                    while i < len(lines) and lines[i].strip() == '':
+                    while i < len(lines) and lines[i].strip() == "":
                         i += 1
                     continue
 
@@ -2602,14 +2714,14 @@ class ReportManager:
                 i += 1
                 continue
 
-            elif stripped == '---' and prev_was_heading:
+            elif stripped == "---" and prev_was_heading:
                 # Skip separator lines immediately following a heading
                 i += 1
                 continue
 
-            elif stripped == '' and prev_was_heading:
+            elif stripped == "" and prev_was_heading:
                 # Keep only one blank line after a heading
-                if processed_lines and processed_lines[-1].strip() != '':
+                if processed_lines and processed_lines[-1].strip() != "":
                     processed_lines.append(line)
                 prev_was_heading = False
 
@@ -2623,7 +2735,7 @@ class ReportManager:
         result_lines = []
         empty_count = 0
         for line in processed_lines:
-            if line.strip() == '':
+            if line.strip() == "":
                 empty_count += 1
                 if empty_count <= 2:
                     result_lines.append(line)
@@ -2631,7 +2743,7 @@ class ReportManager:
                 empty_count = 0
                 result_lines.append(line)
 
-        return '\n'.join(result_lines)
+        return "\n".join(result_lines)
 
     @classmethod
     def save_report(cls, report: Report) -> None:
@@ -2639,7 +2751,7 @@ class ReportManager:
         cls._ensure_report_folder(report.report_id)
 
         # Save metadata JSON
-        with open(cls._get_report_path(report.report_id), 'w', encoding='utf-8') as f:
+        with open(cls._get_report_path(report.report_id), "w", encoding="utf-8") as f:
             json.dump(report.to_dict(), f, ensure_ascii=False, indent=2)
 
         # Save outline
@@ -2648,7 +2760,9 @@ class ReportManager:
 
         # Save complete Markdown report
         if report.markdown_content:
-            with open(cls._get_report_markdown_path(report.report_id), 'w', encoding='utf-8') as f:
+            with open(
+                cls._get_report_markdown_path(report.report_id), "w", encoding="utf-8"
+            ) as f:
                 f.write(report.markdown_content)
 
         logger.info(f"Report saved: {report.report_id}")
@@ -2666,44 +2780,43 @@ class ReportManager:
             else:
                 return None
 
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         # Reconstruct Report object
         outline = None
-        if data.get('outline'):
-            outline_data = data['outline']
+        if data.get("outline"):
+            outline_data = data["outline"]
             sections = []
-            for s in outline_data.get('sections', []):
-                sections.append(ReportSection(
-                    title=s['title'],
-                    content=s.get('content', '')
-                ))
+            for s in outline_data.get("sections", []):
+                sections.append(
+                    ReportSection(title=s["title"], content=s.get("content", ""))
+                )
             outline = ReportOutline(
-                title=outline_data['title'],
-                summary=outline_data['summary'],
-                sections=sections
+                title=outline_data["title"],
+                summary=outline_data["summary"],
+                sections=sections,
             )
 
         # If markdown_content is empty, try reading from full_report.md
-        markdown_content = data.get('markdown_content', '')
+        markdown_content = data.get("markdown_content", "")
         if not markdown_content:
             full_report_path = cls._get_report_markdown_path(report_id)
             if os.path.exists(full_report_path):
-                with open(full_report_path, 'r', encoding='utf-8') as f:
+                with open(full_report_path, "r", encoding="utf-8") as f:
                     markdown_content = f.read()
 
         return Report(
-            report_id=data['report_id'],
-            simulation_id=data['simulation_id'],
-            graph_id=data['graph_id'],
-            simulation_requirement=data['simulation_requirement'],
-            status=ReportStatus(data['status']),
+            report_id=data["report_id"],
+            simulation_id=data["simulation_id"],
+            graph_id=data["graph_id"],
+            simulation_requirement=data["simulation_requirement"],
+            status=ReportStatus(data["status"]),
             outline=outline,
             markdown_content=markdown_content,
-            created_at=data.get('created_at', ''),
-            completed_at=data.get('completed_at', ''),
-            error=data.get('error')
+            created_at=data.get("created_at", ""),
+            completed_at=data.get("completed_at", ""),
+            error=data.get("error"),
         )
 
     @classmethod
@@ -2719,7 +2832,7 @@ class ReportManager:
                 if report and report.simulation_id == simulation_id:
                     return report
             # Backward compatibility: JSON file
-            elif item.endswith('.json'):
+            elif item.endswith(".json"):
                 report_id = item[:-5]
                 report = cls.get_report(report_id)
                 if report and report.simulation_id == simulation_id:
@@ -2728,7 +2841,9 @@ class ReportManager:
         return None
 
     @classmethod
-    def list_reports(cls, simulation_id: Optional[str] = None, limit: int = 50) -> List[Report]:
+    def list_reports(
+        cls, simulation_id: Optional[str] = None, limit: int = 50
+    ) -> List[Report]:
         """List reports"""
         cls._ensure_reports_dir()
 
@@ -2742,7 +2857,7 @@ class ReportManager:
                     if simulation_id is None or report.simulation_id == simulation_id:
                         reports.append(report)
             # Backward compatibility: JSON file
-            elif item.endswith('.json'):
+            elif item.endswith(".json"):
                 report_id = item[:-5]
                 report = cls.get_report(report_id)
                 if report:

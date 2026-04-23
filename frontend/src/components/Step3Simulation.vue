@@ -103,8 +103,22 @@
       </div>
     </div>
 
+    <!-- Tab Switcher -->
+    <div class="panel-tab-bar">
+      <button class="panel-tab" :class="{ active: activeTab === 'feed' }" @click="activeTab = 'feed'">Activity Feed</button>
+      <button class="panel-tab" :class="{ active: activeTab === 'tasks' }" @click="activeTab = 'tasks'">Tasks</button>
+    </div>
+
+    <!-- Tasks Panel -->
+    <TaskPanel
+      v-if="activeTab === 'tasks'"
+      :simulationId="simulationId"
+      :isSimulating="phase === 1"
+      class="panel-task-view"
+    />
+
     <!-- Main Content: Dual Timeline -->
-    <div class="main-content-area" ref="scrollContainer">
+    <div v-if="activeTab === 'feed'" class="main-content-area" ref="scrollContainer">
       <!-- Timeline Header -->
       <div class="timeline-header" v-if="allActions.length > 0">
         <div class="timeline-stats">
@@ -270,7 +284,7 @@
     </div>
 
     <!-- Bottom Info / Logs -->
-    <div class="system-logs">
+    <div v-if="activeTab === 'feed'" class="system-logs">
       <div class="log-header">
         <span class="log-title">SIMULATION MONITOR</span>
         <span class="log-id">{{ simulationId || 'NO_SIMULATION' }}</span>
@@ -288,13 +302,14 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { 
-  startSimulation, 
+import {
+  startSimulation,
   stopSimulation,
-  getRunStatus, 
+  getRunStatus,
   getRunStatusDetail
 } from '../api/simulation'
 import { generateReport } from '../api/report'
+import TaskPanel from './TaskPanel.vue'
 
 const props = defineProps({
   simulationId: String,
@@ -313,6 +328,7 @@ const emit = defineEmits(['go-back', 'next-step', 'add-log', 'update-status'])
 const router = useRouter()
 
 // State
+const activeTab = ref('feed')
 const isGeneratingReport = ref(false)
 const phase = ref(0) // 0: not started, 1: running, 2: completed
 const isStarting = ref(false)
@@ -1260,5 +1276,44 @@ onUnmounted(() => {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   margin-right: 6px;
+}
+
+/* --- Panel Tab Bar --- */
+.panel-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  padding: 0 24px;
+  flex-shrink: 0;
+}
+
+.panel-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: all 0.2s;
+  margin-bottom: -1px;
+}
+
+.panel-tab:hover {
+  color: var(--text-primary);
+}
+
+.panel-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
+}
+
+.panel-task-view {
+  flex: 1;
+  overflow-y: auto;
 }
 </style>

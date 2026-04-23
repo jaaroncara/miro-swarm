@@ -187,9 +187,56 @@ export const getSimulationHistory = (limit = 20) => {
 
 /**
  * Delete a simulation
- * @param {string} simulationId 
+ * @param {string} simulationId
  */
 export const deleteSimulation = (simulationId) => {
   return service.delete(`/api/simulation/${simulationId}`)
 }
 
+/**
+ * Get simulation tasks
+ * @param {string} simulationId
+ * @param {Object} params - Optional filters: { assigned_to, assigned_by, issue_key, status, completed }
+ */
+export const getSimulationTasks = (simulationId, params = {}) => {
+  return service.get(`/api/simulation/${simulationId}/tasks`, { params })
+}
+
+/**
+ * Create a simulation task
+ * @param {string} simulationId
+ * @param {Object} data - { title, description?, assigned_to, assigned_by?, parent_goal?, actor }
+ */
+export const createSimulationTask = (simulationId, data) => {
+  return service.post(`/api/simulation/${simulationId}/tasks`, data)
+}
+
+/**
+ * Start a simulation task
+ * @param {string} simulationId
+ * @param {string} taskRef
+ * @param {Object} data - { actor, reason? }
+ */
+export const startSimulationTask = (simulationId, taskRef, data) => {
+  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/start`, data)
+}
+
+/**
+ * Block a simulation task
+ * @param {string} simulationId
+ * @param {string} taskRef
+ * @param {Object} data - { actor, reason }
+ */
+export const blockSimulationTask = (simulationId, taskRef, data) => {
+  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/block`, data)
+}
+
+/**
+ * Complete a simulation task
+ * @param {string} simulationId
+ * @param {string} taskRef
+ * @param {Object} data - { actor, output }
+ */
+export const completeSimulationTask = (simulationId, taskRef, data) => {
+  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/complete`, data)
+}

@@ -29,7 +29,7 @@ A swarm intelligence prediction engine designed for simulating business scenario
 ### Prerequisites
 
 - Node.js 18+
-- Python 3.11-3.12
+- Python 3.12 recommended (`3.11` supported)
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 
 ### Setup
@@ -40,6 +40,15 @@ cp .env.example .env
 npm run setup:all
 npm run dev
 ```
+
+The backend Python environment is intentionally created at `backend/.venv`. Use that environment for all local backend commands:
+
+```bash
+cd backend
+source .venv/bin/activate
+```
+
+Avoid creating a second repo-root `.venv`; the backend project metadata and workspace settings are pinned to `backend/.venv`.
 
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:5001
@@ -142,7 +151,10 @@ Document upload → LLM ontology extraction → Knowledge graph (GraphStorage �
 
 ### How it works
 
-1. An **MCP server** exposes tools over stdio. The included example server (`backend/mcp_servers/example.py`) provides `lookup_sales_data` and `get_weather`; replace or extend it with your own tools.
+1. An **MCP server** exposes tools over stdio. This repo includes:
+  - `backend/mcp_servers/example.py` for business data and web-research tools
+  - `backend/mcp_servers/task_server.py` for simulation task tools
+  - `backend/mcp_servers/combined.py` to expose both sets together (recommended default)
 2. **MCPManager** (`backend/app/utils/mcp_manager.py`) launches the server as a subprocess, discovers available tools at startup, and exposes them to agents.
 3. During **simulation**, agents see the tool catalog in their system prompt and can invoke tools via an XML `<tool_call>` format. A multi-round loop in `oasis_llm.py` intercepts these calls, executes them through MCP, and feeds results back before the agent's final response.
 4. During **report generation**, the ReACT agent in `report_agent.py` sees MCP tools registered with an `mcp__` prefix alongside the built-in tools (graph search, interview, etc.) and can call them in its reasoning loop.
@@ -155,7 +167,7 @@ Add these to your `.env`:
 # Enable MCP tool support
 MCP_SERVER_ENABLED=true
 MCP_SERVER_CMD=python3
-MCP_SERVER_ARGS=mcp_servers/example.py
+MCP_SERVER_ARGS=-m,mcp_servers.combined
 
 # Optional tuning
 MCP_TOOL_CALL_TIMEOUT=30    # seconds per tool call (default: 30)
