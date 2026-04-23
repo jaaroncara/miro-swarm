@@ -33,20 +33,25 @@ CLI_PROVIDERS = {"claude-cli", "codex-cli"}
 DEFAULT_API_SEMAPHORE = 30
 DEFAULT_CLI_SEMAPHORE = 3
 TASK_MCP_TOOL_NAMES = {
-    "create_task",
+    "offer_task",
+    "accept_task",
+    "decline_task",
     "get_task",
+    "list_my_tasks",
     "start_task",
     "block_task",
     "complete_task",
-    "list_my_tasks",
+    "save_task_artifact",
 }
 
 TASK_COORDINATION_SYSTEM_ADDENDUM = f"""
 # TASK COORDINATION
-- When you ask a colleague for a concrete deliverable, create a tracked task instead of leaving it as plain text only.
-- When you receive a tracked task, acknowledge it quickly and treat it as higher priority than general discussion until you mark it in progress, blocked, or complete.
-- When you are blocked or done, reply directly to the assigning colleague and include the matching task action in the same message.
-- If task MCP tools are available, you may use create_task, get_task, list_my_tasks, start_task, block_task, and complete_task to coordinate work. The active simulation ID and your actor identity are injected automatically for those tools.
+- Use task MCP tools as the primary coordination path whenever they are available.
+- When you ask a colleague for a concrete deliverable, call `offer_task` so they can explicitly `accept_task` or `decline_task` before work begins.
+- Before replying about task work, check `list_my_tasks` and `get_task` so you do not miss pending offers or active assignments.
+- After accepting a task, keep it current with `start_task`, `block_task`, `complete_task`, and `save_task_artifact` when you produce a deliverable.
+- The active simulation ID and your actor identity are injected automatically for task MCP tools. Do not provide them yourself.
+- XML `<task_action>` blocks are legacy compatibility only. Use them only if task MCP tools are unavailable in the current run.
 
 {TASK_ACTION_GRAMMAR}
 """.strip()

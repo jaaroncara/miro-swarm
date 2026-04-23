@@ -45,8 +45,16 @@ export const getReport = (reportId) => {
 
 /**
  * Chat with Report Agent
- * @param {Object} data - { simulation_id, message, chat_history? }
+ * @param {Object} data - { simulation_id, message, chat_history?, task_ref? }
  */
 export const chatWithReport = (data) => {
   return requestWithRetry(() => service.post('/api/report/chat', data), 3, 1000)
+}
+
+/**
+ * Get packaged report deliverables manifest
+ * @param {string} reportId
+ */
+export const getReportDeliverables = (reportId) => {
+  return service.get(`/api/report/${reportId}/deliverables`)
 }

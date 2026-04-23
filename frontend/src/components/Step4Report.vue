@@ -139,6 +139,90 @@
           <div class="workflow-divider"></div>
         </div>
 
+        <div
+          v-if="deliverablesLoading || deliverableTaskCount > 0 || isComplete || deliverablesError"
+          class="deliverables-panel"
+        >
+          <div class="deliverables-panel-header">
+            <div>
+              <div class="deliverables-panel-title">Packaged Deliverables</div>
+              <div class="deliverables-panel-subtitle">
+                Completed task outputs copied into the final report package.
+              </div>
+            </div>
+
+            <div class="deliverables-panel-summary" v-if="deliverablesManifest">
+              <span class="deliverables-summary-chip">{{ deliverableTaskCount }} tasks</span>
+              <span class="deliverables-summary-chip">{{ copiedArtifactsCount }} copied files</span>
+              <span v-if="deliverablesManifest.packaged_at" class="deliverables-summary-chip mono">
+                {{ formatDateTime(deliverablesManifest.packaged_at) }}
+              </span>
+            </div>
+          </div>
+
+          <div v-if="deliverablesLoading && deliverableTaskCount === 0" class="deliverables-state">
+            Loading report package manifest...
+          </div>
+          <div v-else-if="deliverablesError && deliverableTaskCount === 0" class="deliverables-state deliverables-state-error">
+            {{ deliverablesError }}
+          </div>
+          <div v-else-if="deliverableTaskCount === 0" class="deliverables-state">
+            Completed tasks will appear here once the report agent packages their deliverables.
+          </div>
+
+          <div v-else class="deliverables-list">
+            <article v-for="deliverable in groupedDeliverables" :key="deliverable.issue_key || deliverable.task_id" class="deliverable-card">
+              <div class="deliverable-card-top">
+                <div>
+                  <div class="deliverable-keyline">
+                    <span class="deliverable-key mono">{{ deliverable.issue_key || deliverable.task_id }}</span>
+                    <span v-if="deliverable.mapped_report_section" class="deliverable-section-chip">
+                      {{ formatMappedSection(deliverable.mapped_report_section) }}
+                    </span>
+                  </div>
+                  <div class="deliverable-title">{{ deliverable.title }}</div>
+                </div>
+                <span class="deliverable-status-pill">{{ formatTaskStatus(deliverable.status) }}</span>
+              </div>
+
+              <div v-if="deliverable.description" class="deliverable-description">{{ deliverable.description }}</div>
+
+              <div class="deliverable-routing">
+                <span>{{ deliverable.assigned_by || 'system' }}</span>
+                <span class="deliverable-arrow">→</span>
+                <span>{{ deliverable.assigned_to || 'unassigned' }}</span>
+              </div>
+
+              <div class="deliverable-meta-row">
+                <span v-if="deliverable.origin" class="deliverable-meta-chip">{{ formatTaskStatus(deliverable.origin) }}</span>
+                <span v-if="deliverable.parent_goal" class="deliverable-meta-chip">{{ deliverable.parent_goal }}</span>
+                <span class="deliverable-meta-chip">{{ deliverable.artifact_count || 0 }} artifacts</span>
+                <span v-if="deliverable.file_types?.length" class="deliverable-meta-chip">{{ deliverable.file_types.join(', ') }}</span>
+                <span v-if="deliverable.completed_at" class="deliverable-meta-chip mono">{{ formatDateTime(deliverable.completed_at) }}</span>
+              </div>
+
+              <div v-if="deliverable.output" class="deliverable-output">{{ deliverable.output }}</div>
+
+              <div class="deliverable-artifact-list">
+                <div v-for="artifact in deliverable.artifacts || []" :key="artifact.artifact_id" class="deliverable-artifact-card">
+                  <div class="deliverable-artifact-top">
+                    <span class="deliverable-artifact-name">{{ artifact.filename || artifact.artifact_id }}</span>
+                    <span class="deliverable-artifact-state" :class="{ copied: artifact.copied, missing: artifact.missing_source }">
+                      {{ artifact.missing_source ? 'Missing source' : artifact.copied ? 'Copied' : 'Pending copy' }}
+                    </span>
+                  </div>
+                  <div v-if="artifact.report_relative_path" class="deliverable-artifact-path mono">
+                    package/{{ artifact.report_relative_path }}
+                  </div>
+                  <div v-else-if="artifact.source_relative_path" class="deliverable-artifact-path mono">
+                    source/{{ artifact.source_relative_path }}
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+
         <div class="workflow-timeline">
           <TransitionGroup name="timeline-item">
             <div 
@@ -392,7 +476,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, h, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAgentLog, getConsoleLog } from '../api/report'
+import { getAgentLog, getConsoleLog, getReportDeliverables } from '../api/report'
 
 const router = useRouter()
 
@@ -428,6 +512,9 @@ const leftPanel = ref(null)
 const rightPanel = ref(null)
 const logContent = ref(null)
 const showRawResult = reactive({})
+const deliverablesManifest = ref(null)
+const deliverablesLoading = ref(false)
+const deliverablesError = ref('')
 
 // Toggle functions
 const toggleRawResult = (timestamp, event) => {
@@ -1730,6 +1817,33 @@ const totalToolCalls = computed(() => {
   return agentLogs.value.filter(l => l.action === 'tool_call').length
 })
 
+const groupedDeliverables = computed(() => {
+  const deliverables = deliverablesManifest.value?.deliverables || []
+  return [...deliverables].sort((left, right) => {
+    const leftSection = String(left.mapped_report_section || '')
+    const rightSection = String(right.mapped_report_section || '')
+
+    if (leftSection !== rightSection) {
+      return leftSection.localeCompare(rightSection, undefined, { numeric: true })
+    }
+
+    return String(left.issue_key || '').localeCompare(
+      String(right.issue_key || ''),
+      undefined,
+      { numeric: true }
+    )
+  })
+})
+
+const deliverableTaskCount = computed(() => groupedDeliverables.value.length)
+
+const copiedArtifactsCount = computed(() => {
+  return groupedDeliverables.value.reduce((total, deliverable) => {
+    const copied = (deliverable.artifacts || []).filter(artifact => artifact.copied).length
+    return total + copied
+  }, 0)
+})
+
 const formatElapsedTime = computed(() => {
   if (!startTime.value) return '0s'
   const lastLog = agentLogs.value[agentLogs.value.length - 1]
@@ -1843,6 +1957,33 @@ const formatTime = (timestamp) => {
   } catch {
     return ''
   }
+}
+
+const formatDateTime = (timestamp) => {
+  if (!timestamp) return ''
+  try {
+    return new Date(timestamp).toLocaleString('en-US', {
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  } catch {
+    return ''
+  }
+}
+
+const formatTaskStatus = (value) => {
+  return String(value || 'unknown')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase())
+}
+
+const formatMappedSection = (value) => {
+  if (value == null || value === '') return 'Unmapped'
+  return `Mapped to ${value}`
 }
 
 const formatParams = (params) => {
@@ -2022,6 +2163,26 @@ const getLogLevelClass = (log) => {
   return ''
 }
 
+const loadDeliverablesManifest = async () => {
+  if (!props.reportId) return
+
+  deliverablesLoading.value = true
+  deliverablesError.value = ''
+
+  try {
+    const res = await getReportDeliverables(props.reportId)
+    if (res.success && res.data) {
+      deliverablesManifest.value = res.data
+    } else {
+      deliverablesError.value = res.error || 'Failed to load report package manifest.'
+    }
+  } catch (err) {
+    deliverablesError.value = err.message || 'Failed to load report package manifest.'
+  } finally {
+    deliverablesLoading.value = false
+  }
+}
+
 // Polling
 let agentLogTimer = null
 let consoleLogTimer = null
@@ -2062,6 +2223,7 @@ const fetchAgentLog = async () => {
             currentSectionIndex.value = null  // Ensure loading state is cleared
             emit('update-status', 'completed')
             stopPolling()
+            loadDeliverablesManifest()
             // Scroll logic handled uniformly in nextTick after loop ends
           }
           
@@ -2184,6 +2346,7 @@ const stopPolling = () => {
 onMounted(() => {
   if (props.reportId) {
     addLog(`Report Agent initialized: ${props.reportId}`)
+    loadDeliverablesManifest()
     startPolling()
   }
 })
@@ -2206,7 +2369,10 @@ watch(() => props.reportId, (newId) => {
     collapsedSections.value = new Set()
     isComplete.value = false
     startTime.value = null
+    deliverablesManifest.value = null
+    deliverablesError.value = ''
     
+    loadDeliverablesManifest()
     startPolling()
   }
 }, { immediate: true })
@@ -2899,6 +3065,190 @@ watch(() => props.reportId, (newId) => {
   height: 1px;
   background: var(--wf-divider);
   margin: 14px 0 0 0;
+}
+
+.deliverables-panel {
+  padding: 16px 20px 0;
+}
+
+.deliverables-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.deliverables-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.deliverables-panel-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.deliverables-panel-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.deliverables-summary-chip,
+.deliverable-meta-chip,
+.deliverable-section-chip,
+.deliverable-status-pill,
+.deliverable-artifact-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--wf-border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.deliverables-state {
+  padding: 14px 16px;
+  border: 1px dashed var(--wf-border);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+}
+
+.deliverables-state-error {
+  border-style: solid;
+  color: #DC2626;
+}
+
+.deliverables-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.deliverable-card {
+  border: 1px solid var(--wf-divider);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--bg-primary);
+}
+
+.deliverable-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.deliverable-keyline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.deliverable-key {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.deliverable-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.deliverable-description,
+.deliverable-output {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.deliverable-output {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.deliverable-routing {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.deliverable-arrow {
+  color: var(--text-secondary);
+}
+
+.deliverable-meta-row {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.deliverable-artifact-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.deliverable-artifact-card {
+  border: 1px solid var(--wf-divider);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+}
+
+.deliverable-artifact-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.deliverable-artifact-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.deliverable-artifact-state.copied {
+  color: var(--wf-done-dot);
+  border-color: var(--wf-done-border);
+}
+
+.deliverable-artifact-state.missing {
+  color: #DC2626;
+  border-color: rgba(220, 38, 38, 0.25);
+}
+
+.deliverable-artifact-path {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
 }
 
 /* Workflow Timeline */

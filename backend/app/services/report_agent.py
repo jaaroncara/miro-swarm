@@ -13,6 +13,7 @@ import os
 import json
 import time
 import re
+import shutil
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -22,6 +23,7 @@ from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from ..core.simulation_task_store import get_simulation_task_store
+from ..core.task_observability import log_task_pipeline_metric
 from .graph_tools import (
     GraphToolsService,
     SearchResult,
@@ -572,7 +574,7 @@ Workflow:
 
 [Important] The OASIS simulation environment must be running to use this feature!"""
 
-TOOL_DESC_LIST_TASKS = "list_tasks: Returns all simulation tasks created during the agent discussion — who assigned them, who they were assigned to, current status, and any outputs from completed tasks. Use this tool to surface actionable outcomes from the simulation."
+TOOL_DESC_LIST_TASKS = "list_tasks: Returns simulation task outcomes, owners, deadlines, attached deliverables, and completion outputs. Use this tool to surface concrete work products from the simulation."
 
 # ── Outline Planning Prompt ──
 
@@ -650,6 +652,9 @@ The variable injected into the simulated world (simulation requirement): {simula
 [Sample of Future Facts Predicted by the Simulation]
 {related_facts_json}
 
+[Simulation Task Outcomes & Deliverables]
+{task_report_context}
+
 Please examine this future rehearsal from a "bird's-eye view":
 1. Under the conditions we set, what state did the future present?
 2. How did various population groups (Agents) react and act?
@@ -667,6 +672,8 @@ You are an expert Business Strategy & Organization Alignment Analyst, currently 
 Report Title: {report_title}
 Report Summary: {report_summary}
 Business Change Scenario (simulation requirement): {simulation_requirement}
+Simulation task outcomes and deliverables:
+{task_report_context}
 
 Current section to write: {section_title}
 
@@ -889,6 +896,9 @@ Prediction conditions: {simulation_requirement}
 [Generated Analysis Report]
 {report_content}
 
+[Simulation Task Context]
+{task_context}
+
 [Rules]
 1. Prioritize answering questions based on the report content above
 2. Answer questions directly; avoid lengthy deliberation
@@ -973,6 +983,7 @@ class ReportAgent:
 
         # Tool definitions (includes MCP tools if available)
         self.tools = self._define_tools()
+        self.task_report_context = self._build_task_report_context(max_tasks=8)
 
         # Logger (initialized in generate_report)
         self.report_logger: Optional[ReportLogger] = None
@@ -1043,7 +1054,7 @@ class ReportAgent:
                     "properties": {
                         "status_filter": {
                             "type": "string",
-                            "description": "Optional. Filter by status: 'open', 'in_progress', 'done', 'blocked'. Leave empty to return all tasks.",
+                            "description": "Optional. Filter by status: 'offered', 'open', 'in_progress', 'blocked', 'done', 'declined', or 'expired'. Leave empty to return all tasks.",
                         }
                     },
                     "required": [],
@@ -1075,6 +1086,112 @@ class ReportAgent:
             )
 
         return tools
+
+    def _load_simulation_tasks(self, status_filter: Optional[str] = None) -> List[Any]:
+        """Load simulation tasks for prompt/context generation."""
+        try:
+            store = get_simulation_task_store(self.simulation_id)
+            return store.list_tasks(status=status_filter)
+        except Exception as exc:
+            logger.warning(f"Failed to load simulation tasks: {exc}")
+            return []
+
+    def _render_task_context(
+        self,
+        tasks: List[Any],
+        *,
+        heading: str,
+        max_tasks: int = 12,
+        include_status_counts: bool = True,
+    ) -> str:
+        """Render a concise task summary for prompts and tool output."""
+        if not tasks:
+            return f"{heading}\n(No simulation tasks recorded.)"
+
+        lines = [heading]
+        if include_status_counts:
+            status_counts: Dict[str, int] = {}
+            for task in tasks:
+                status_counts[task.status] = status_counts.get(task.status, 0) + 1
+            counts_summary = ", ".join(
+                f"{status}={count}" for status, count in sorted(status_counts.items())
+            )
+            lines.append(f"Status counts: {counts_summary}")
+
+        for task in tasks[:max_tasks]:
+            lines.append(
+                f'- {task.issue_key} [{task.status}] "{task.title}" — {task.assigned_by} -> {task.assigned_to}'
+            )
+            metadata_parts: List[str] = []
+            if task.parent_goal:
+                metadata_parts.append(f"goal={task.parent_goal}")
+            if task.created_round is not None:
+                metadata_parts.append(f"created_round={task.created_round}")
+            if task.due_round is not None:
+                metadata_parts.append(f"due_round={task.due_round}")
+            if task.round_budget is not None:
+                metadata_parts.append(f"round_budget={task.round_budget}")
+            if task.origin:
+                metadata_parts.append(f"origin={task.origin}")
+            if metadata_parts:
+                lines.append(f"  Meta: {' | '.join(metadata_parts)}")
+            if task.output:
+                lines.append(f"  Output: {self._truncate_text(task.output, limit=280)}")
+            if task.artifact_refs:
+                artifact_summary = ", ".join(
+                    f"{artifact.filename} ({artifact.media_type or 'application/octet-stream'})"
+                    for artifact in task.artifact_refs
+                )
+                lines.append(f"  Deliverables: {artifact_summary}")
+
+        if len(tasks) > max_tasks:
+            lines.append(f"... {len(tasks) - max_tasks} more task(s) omitted.")
+
+        return "\n".join(lines)
+
+    def _build_task_report_context(
+        self,
+        *,
+        task_ref: Optional[str] = None,
+        max_tasks: int = 12,
+    ) -> str:
+        """Build the task/deliverable context injected into report prompts and chat."""
+        tasks = self._load_simulation_tasks()
+        if task_ref:
+            tasks = [
+                task
+                for task in tasks
+                if task.issue_key == task_ref or task.task_id == task_ref
+            ]
+            if not tasks:
+                return f"Task focus: {task_ref}\n(Task not found in the simulation task store.)"
+            return self._render_task_context(
+                tasks,
+                heading=f"Task focus: {task_ref}",
+                max_tasks=1,
+                include_status_counts=False,
+            )
+
+        completed_tasks = [task for task in tasks if task.status == "done"]
+        if completed_tasks:
+            return self._render_task_context(
+                completed_tasks,
+                heading="Completed task outcomes and attached deliverables:",
+                max_tasks=max_tasks,
+            )
+
+        return self._render_task_context(
+            tasks,
+            heading="Simulation task status overview:",
+            max_tasks=max_tasks,
+        )
+
+    @staticmethod
+    def _truncate_text(value: str, *, limit: int) -> str:
+        normalized = (value or "").strip()
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[: limit - 3] + "..."
 
     def _execute_tool(
         self, tool_name: str, parameters: Dict[str, Any], report_context: str = ""
@@ -1146,31 +1263,15 @@ class ReportAgent:
             elif tool_name == "list_tasks":
                 try:
                     status_filter = parameters.get("status_filter", "").strip() or None
-                    store = get_simulation_task_store(self.simulation_id)
-                    tasks = store.list_tasks(status=status_filter)
+                    tasks = self._load_simulation_tasks(status_filter=status_filter)
                     if not tasks:
                         return "No simulation tasks found."
-
-                    status_order = ["open", "in_progress", "blocked", "done"]
-                    grouped: Dict[str, list] = {s: [] for s in status_order}
-                    for t in tasks:
-                        grouped.setdefault(t.status, []).append(t)
-
-                    lines = [f"## Simulation Tasks ({len(tasks)} total)", ""]
-                    for s in status_order:
-                        group = grouped.get(s, [])
-                        if not group:
-                            continue
-                        lines.append(f"**[{s.upper()}]** ({len(group)})")
-                        for t in group:
-                            short_id = t.task_id[:8]
-                            lines.append(
-                                f'- [{short_id}] "{t.title}" — assigned by {t.assigned_by} → {t.assigned_to}'
-                            )
-                            if t.output:
-                                lines.append(f"  Output: {t.output}")
-                        lines.append("")
-                    return "\n".join(lines).rstrip()
+                    heading = (
+                        f"Simulation tasks filtered by status={status_filter}:"
+                        if status_filter
+                        else "All simulation tasks and deliverables:"
+                    )
+                    return self._render_task_context(tasks, heading=heading)
                 except Exception as e:
                     logger.error(f"list_tasks failed: {e}")
                     return f"list_tasks failed: {e}"
@@ -1418,6 +1519,7 @@ class ReportAgent:
             related_facts_json=json.dumps(
                 context.get("related_facts", [])[:10], ensure_ascii=False, indent=2
             ),
+            task_report_context=self.task_report_context,
         )
 
         try:
@@ -1508,6 +1610,7 @@ class ReportAgent:
             section_title=section.title,
             tools_description=self._get_tools_description(),
             report_language=report_language_name,
+            task_report_context=self.task_report_context,
         )
 
         # Build user prompt - each completed section passes in up to 4000 characters
@@ -2091,7 +2194,10 @@ class ReportAgent:
             return report
 
     def chat(
-        self, message: str, chat_history: List[Dict[str, str]] = None
+        self,
+        message: str,
+        chat_history: List[Dict[str, str]] = None,
+        task_ref: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Chat with the Report Agent
@@ -2129,6 +2235,14 @@ class ReportAgent:
             simulation_requirement=self.simulation_requirement,
             report_content=(
                 report_content if report_content else "(No report available yet)"
+            ),
+            task_context=(
+                self._build_task_report_context(
+                    task_ref=task_ref,
+                    max_tasks=6,
+                )
+                if task_ref
+                else self.task_report_context
             ),
             tools_description=self._get_tools_description(),
         )
@@ -2284,6 +2398,210 @@ class ReportManager:
     def _get_console_log_path(cls, report_id: str) -> str:
         """Get the console log file path"""
         return os.path.join(cls._get_report_folder(report_id), "console_log.txt")
+
+    @classmethod
+    def _get_deliverables_folder(cls, report_id: str) -> str:
+        """Get the packaged deliverables folder for a report."""
+        return os.path.join(cls._get_report_folder(report_id), "deliverables")
+
+    @classmethod
+    def _get_deliverables_manifest_path(cls, report_id: str) -> str:
+        """Get the report deliverables manifest path."""
+        return os.path.join(cls._get_deliverables_folder(report_id), "manifest.json")
+
+    @classmethod
+    def _infer_report_section(
+        cls,
+        task: Any,
+        report_section_titles: Optional[List[str]] = None,
+    ) -> Optional[str]:
+        """Best-effort mapping from a task to a report section."""
+        if not report_section_titles:
+            return None
+
+        candidates = [
+            str(task.parent_goal or "").strip(),
+            str(task.title or "").strip(),
+        ]
+        normalized_titles = [title for title in report_section_titles if title]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            normalized_candidate = candidate.lower()
+            for title in normalized_titles:
+                normalized_title = title.lower()
+                if (
+                    normalized_candidate == normalized_title
+                    or normalized_candidate in normalized_title
+                    or normalized_title in normalized_candidate
+                ):
+                    return title
+        return None
+
+    @classmethod
+    def _get_task_completion_timestamp(cls, task: Any) -> str:
+        """Resolve the best completion timestamp for a task."""
+        for event in reversed(task.events or []):
+            if event.event_type == "completed":
+                return event.created_at
+        return task.updated_at
+
+    @classmethod
+    def package_task_deliverables(
+        cls,
+        report_id: str,
+        simulation_id: str,
+        report_section_titles: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Copy completed task artifacts into the report package and write a manifest."""
+        cls._ensure_report_folder(report_id)
+        deliverables_dir = cls._get_deliverables_folder(report_id)
+        os.makedirs(deliverables_dir, exist_ok=True)
+
+        store = get_simulation_task_store(simulation_id)
+        simulation_dir = os.path.join(Config.OASIS_SIMULATION_DATA_DIR, simulation_id)
+        report_dir = cls._get_report_folder(report_id)
+        packaged_task_count = 0
+        copied_artifact_count = 0
+        missing_source_count = 0
+        failed_copy_count = 0
+
+        manifest = {
+            "report_id": report_id,
+            "simulation_id": simulation_id,
+            "packaged_at": datetime.now().isoformat(),
+            "deliverables": [],
+        }
+
+        for task in store.list_tasks(status="done"):
+            mapped_section = cls._infer_report_section(task, report_section_titles)
+            entry = {
+                "issue_key": task.issue_key,
+                "task_id": task.task_id,
+                "title": task.title,
+                "description": task.description,
+                "assigned_by": task.assigned_by,
+                "assigned_to": task.assigned_to,
+                "status": task.status,
+                "origin": task.origin,
+                "parent_goal": task.parent_goal,
+                "created_round": task.created_round,
+                "due_round": task.due_round,
+                "round_budget": task.round_budget,
+                "completed_at": cls._get_task_completion_timestamp(task),
+                "output": task.output,
+                "artifact_count": len(task.artifact_refs or []),
+                "file_types": [],
+                "mapped_report_section": mapped_section,
+                "artifacts": [],
+                "copied_artifact_count": 0,
+                "missing_artifact_count": 0,
+                "failed_artifact_count": 0,
+            }
+
+            task_output_dir = os.path.join(deliverables_dir, task.issue_key)
+            os.makedirs(task_output_dir, exist_ok=True)
+            file_types = set()
+
+            for artifact in task.artifact_refs or []:
+                filename_root, filename_ext = os.path.splitext(artifact.filename)
+                if filename_ext:
+                    file_types.add(filename_ext.lower())
+
+                artifact_entry = {
+                    "artifact_id": artifact.artifact_id,
+                    "filename": artifact.filename,
+                    "media_type": artifact.media_type,
+                    "kind": artifact.kind,
+                    "size_bytes": artifact.size_bytes,
+                    "checksum_sha256": artifact.checksum_sha256,
+                    "source_relative_path": artifact.relative_path,
+                    "report_relative_path": None,
+                    "copied": False,
+                }
+
+                source_path = os.path.join(simulation_dir, artifact.relative_path)
+                if os.path.exists(source_path):
+                    destination_path = os.path.join(task_output_dir, artifact.filename)
+                    if os.path.exists(destination_path):
+                        destination_path = os.path.join(
+                            task_output_dir,
+                            f"{filename_root}-{artifact.artifact_id[:8]}{filename_ext}",
+                        )
+
+                    try:
+                        shutil.copy2(source_path, destination_path)
+                    except OSError as exc:
+                        artifact_entry["copy_error"] = str(exc)
+                        entry["failed_artifact_count"] += 1
+                        failed_copy_count += 1
+                        log_task_pipeline_metric(
+                            "packaging_failure",
+                            level="warning",
+                            simulation_id=simulation_id,
+                            report_id=report_id,
+                            issue_key=task.issue_key,
+                            artifact_id=artifact.artifact_id,
+                            artifact_filename=artifact.filename,
+                            error=str(exc),
+                        )
+                    else:
+                        artifact_entry["report_relative_path"] = os.path.relpath(
+                            destination_path,
+                            report_dir,
+                        ).replace(os.sep, "/")
+                        artifact_entry["copied"] = True
+                        entry["copied_artifact_count"] += 1
+                        copied_artifact_count += 1
+                else:
+                    artifact_entry["missing_source"] = True
+                    entry["missing_artifact_count"] += 1
+                    missing_source_count += 1
+
+                entry["artifacts"].append(artifact_entry)
+
+            entry["file_types"] = sorted(file_types)
+            manifest["deliverables"].append(entry)
+            packaged_task_count += 1
+
+        manifest["summary"] = {
+            "packaged_task_count": packaged_task_count,
+            "copied_artifact_count": copied_artifact_count,
+            "missing_source_count": missing_source_count,
+            "failed_copy_count": failed_copy_count,
+        }
+
+        with open(
+            cls._get_deliverables_manifest_path(report_id),
+            "w",
+            encoding="utf-8",
+        ) as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+        log_task_pipeline_metric(
+            "packaging_summary",
+            simulation_id=simulation_id,
+            report_id=report_id,
+            packaged_task_count=packaged_task_count,
+            copied_artifact_count=copied_artifact_count,
+            missing_source_count=missing_source_count,
+            failed_copy_count=failed_copy_count,
+        )
+
+        return manifest
+
+    @classmethod
+    def get_deliverables_manifest(cls, report_id: str) -> Dict[str, Any]:
+        """Load the packaged deliverables manifest for a report."""
+        manifest_path = cls._get_deliverables_manifest_path(report_id)
+        if not os.path.exists(manifest_path):
+            return {
+                "report_id": report_id,
+                "deliverables": [],
+            }
+
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            return json.load(f)
 
     @classmethod
     def get_console_log(cls, report_id: str, from_line: int = 0) -> Dict[str, Any]:

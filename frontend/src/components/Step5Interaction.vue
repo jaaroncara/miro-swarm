@@ -146,6 +146,27 @@
           </div>
         </div>
 
+        <div v-if="taskOptions.length > 0" class="task-scope-bar">
+          <div class="task-scope-copy">
+            <span class="task-scope-title">Task Scope</span>
+            <span class="task-scope-subtitle">{{ taskScopeSubtitle }}</span>
+          </div>
+
+          <div class="task-scope-controls">
+            <select v-model="selectedTaskRef" class="task-scope-select">
+              <option value="">No task scope</option>
+              <option v-for="task in taskOptions" :key="task.issue_key || task.task_id" :value="task.issue_key || task.task_id">
+                {{ task.issue_key || task.task_id }} · {{ task.title }}
+              </option>
+            </select>
+
+            <div v-if="selectedTask" class="task-scope-summary">
+              <span class="task-scope-key mono">{{ selectedTask.issue_key || selectedTask.task_id }}</span>
+              <span class="task-scope-status">{{ formatTaskStatus(selectedTask.status) }}</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Chat Mode -->
         <div v-if="activeTab === 'chat'" class="chat-container">
 
@@ -214,6 +235,10 @@
                 </div>
               </div>
             </div>
+            <div v-if="selectedTask" class="task-scope-note">
+              <span class="task-scope-note-label">Scoped task</span>
+              <span class="task-scope-note-body">{{ selectedTask.title }}</span>
+            </div>
           </div>
 
           <!-- Agent Profile Card -->
@@ -239,6 +264,10 @@
                 <p>{{ selectedAgent.bio }}</p>
               </div>
             </div>
+            <div v-if="selectedTask" class="task-scope-note task-scope-note-agent">
+              <span class="task-scope-note-label">Interview focus</span>
+              <span class="task-scope-note-body">{{ selectedTask.title }}</span>
+            </div>
           </div>
 
           <!-- Chat Messages -->
@@ -250,7 +279,7 @@
                 </svg>
               </div>
               <p class="empty-text">
-                {{ chatTarget === 'report_agent' ? 'Chat with Report Agent to dive deeper into report content' : 'Chat with simulated individuals to learn their perspectives' }}
+                {{ chatEmptyText }}
               </p>
             </div>
             <div 
@@ -292,7 +321,7 @@
             <textarea 
               v-model="chatInput"
               class="chat-input"
-              placeholder="Type your question..."
+              :placeholder="chatInputPlaceholder"
               @keydown.enter.exact.prevent="sendMessage"
               :disabled="isSending || (!selectedAgent && chatTarget === 'agent')"
               rows="1"
@@ -413,7 +442,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { chatWithReport, getReport, getAgentLog } from '../api/report'
-import { interviewAgents, getSimulationProfilesRealtime } from '../api/simulation'
+import { interviewAgents, getSimulationProfilesRealtime, getSimulationTasks } from '../api/simulation'
 
 const props = defineProps({
   reportId: String,
@@ -430,6 +459,8 @@ const selectedAgent = ref(null)
 const selectedAgentIndex = ref(null)
 const showFullProfile = ref(true)
 const showToolsDetail = ref(true)
+const simulationTasks = ref([])
+const selectedTaskRef = ref('')
 
 // Chat State
 const chatInput = ref('')
@@ -452,6 +483,47 @@ const collapsedSections = ref(new Set())
 const currentSectionIndex = ref(null)
 const profiles = ref([])
 
+const taskOptions = computed(() => {
+  return [...simulationTasks.value].sort((left, right) => {
+    return String(right.updated_at || '').localeCompare(String(left.updated_at || ''))
+  })
+})
+
+const selectedTask = computed(() => {
+  return taskOptions.value.find(task => (task.issue_key || task.task_id) === selectedTaskRef.value) || null
+})
+
+const taskScopeSubtitle = computed(() => {
+  if (activeTab.value === 'survey' || chatTarget.value === 'agent') {
+    return selectedTask.value
+      ? 'This task context is prepended to interview prompts.'
+      : 'Optional. Selected task details will be prepended to interview prompts.'
+  }
+
+  return selectedTask.value
+    ? 'This task is sent to the Report Agent via task_ref.'
+    : 'Optional. Select a task to focus the Report Agent on a specific issue.'
+})
+
+const chatEmptyText = computed(() => {
+  if (chatTarget.value === 'report_agent') {
+    return selectedTask.value
+      ? `Chat with Report Agent about ${selectedTask.value.issue_key || selectedTask.value.task_id}.`
+      : 'Chat with Report Agent to dive deeper into report content'
+  }
+
+  return selectedTask.value
+    ? `Interview simulated individuals about ${selectedTask.value.issue_key || selectedTask.value.task_id}.`
+    : 'Chat with simulated individuals to learn their perspectives'
+})
+
+const chatInputPlaceholder = computed(() => {
+  if (selectedTask.value) {
+    return `Ask about ${selectedTask.value.issue_key || selectedTask.value.task_id}...`
+  }
+  return 'Type your question...'
+})
+
 // Helper Methods
 const isSectionCompleted = (sectionIndex) => {
   return !!generatedSections.value[sectionIndex]
@@ -464,6 +536,12 @@ const rightPanel = ref(null)
 // Methods
 const addLog = (msg) => {
   emit('add-log', msg)
+}
+
+const formatTaskStatus = (value) => {
+  return String(value || 'unknown')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase())
 }
 
 const toggleSectionCollapse = (idx) => {
@@ -484,14 +562,41 @@ const selectChatTarget = (target) => {
   }
 }
 
+const getChatCacheKey = (
+  target = chatTarget.value,
+  agentIndex = selectedAgentIndex.value,
+  taskRef = selectedTaskRef.value
+) => {
+  const taskKey = taskRef || 'none'
+  if (target === 'report_agent') {
+    return `report_agent:${taskKey}`
+  }
+  if (agentIndex === null || agentIndex === undefined) {
+    return null
+  }
+  return `agent_${agentIndex}:${taskKey}`
+}
+
+const restoreChatHistory = (
+  target = chatTarget.value,
+  agentIndex = selectedAgentIndex.value,
+  taskRef = selectedTaskRef.value
+) => {
+  const key = getChatCacheKey(target, agentIndex, taskRef)
+  chatHistory.value = key ? (chatHistoryCache.value[key] || []) : []
+}
+
 // Save current conversation records to cache
-const saveChatHistory = () => {
+const saveChatHistory = (
+  target = chatTarget.value,
+  agentIndex = selectedAgentIndex.value,
+  taskRef = selectedTaskRef.value
+) => {
   if (chatHistory.value.length === 0) return
-  
-  if (chatTarget.value === 'report_agent') {
-    chatHistoryCache.value['report_agent'] = [...chatHistory.value]
-  } else if (selectedAgentIndex.value !== null) {
-    chatHistoryCache.value[`agent_${selectedAgentIndex.value}`] = [...chatHistory.value]
+
+  const key = getChatCacheKey(target, agentIndex, taskRef)
+  if (key) {
+    chatHistoryCache.value[key] = [...chatHistory.value]
   }
 }
 
@@ -506,10 +611,11 @@ const selectReportAgentChat = () => {
   showAgentDropdown.value = false
   
   // Restore Report Agent conversation records
-  chatHistory.value = chatHistoryCache.value['report_agent'] || []
+  restoreChatHistory('report_agent', null, selectedTaskRef.value)
 }
 
 const selectSurveyTab = () => {
+  saveChatHistory()
   activeTab.value = 'survey'
   selectedAgent.value = null
   selectedAgentIndex.value = null
@@ -534,8 +640,31 @@ const selectAgent = (agent, idx) => {
   showAgentDropdown.value = false
   
   // Restore this Agent's conversation records
-  chatHistory.value = chatHistoryCache.value[`agent_${idx}`] || []
+  restoreChatHistory('agent', idx, selectedTaskRef.value)
   addLog(`Selected chat target: ${agent.username}`)
+}
+
+const buildTaskContextPrompt = (task) => {
+  if (!task) return ''
+
+  const lines = [
+    'Task scope for this interaction:',
+    `- Ref: ${task.issue_key || task.task_id}`,
+    `- Title: ${task.title || 'Untitled task'}`,
+    `- Status: ${formatTaskStatus(task.status)}`
+  ]
+
+  if (task.description) {
+    lines.push(`- Description: ${task.description}`)
+  }
+  if (task.parent_goal) {
+    lines.push(`- Parent goal: ${task.parent_goal}`)
+  }
+  if (task.output) {
+    lines.push(`- Current output: ${task.output}`)
+  }
+
+  return `${lines.join('\n')}\n`
 }
 
 const formatTime = (timestamp) => {
@@ -701,7 +830,8 @@ const sendToReportAgent = async (message) => {
   const res = await chatWithReport({
     simulation_id: props.simulationId,
     message: message,
-    chat_history: historyForApi
+    chat_history: historyForApi,
+    task_ref: selectedTaskRef.value || undefined
   })
   
   if (res.success && res.data) {
@@ -732,6 +862,10 @@ const sendToAgent = async (message) => {
       .map(msg => `${msg.role === 'user' ? 'Questioner' : 'You'}: ${msg.content}`)
       .join('\n')
     prompt = `Here is our previous conversation:\n${historyContext}\n\nMy new question is: ${message}`
+  }
+
+  if (selectedTask.value) {
+    prompt = `${buildTaskContextPrompt(selectedTask.value)}\nUse the task context above when answering.\n\n${prompt}`
   }
   
   const res = await interviewAgents({
@@ -818,7 +952,9 @@ const submitSurvey = async () => {
   try {
     const interviews = Array.from(selectedAgents.value).map(idx => ({
       agent_id: idx,
-      prompt: surveyQuestion.value.trim()
+      prompt: selectedTask.value
+        ? `${buildTaskContextPrompt(selectedTask.value)}\nUse the task context above when answering the survey.\n\n${surveyQuestion.value.trim()}`
+        : surveyQuestion.value.trim()
     }))
     
     const res = await interviewAgents({
@@ -935,6 +1071,24 @@ const loadProfiles = async () => {
   }
 }
 
+const loadTasks = async () => {
+  if (!props.simulationId) return
+
+  try {
+    const res = await getSimulationTasks(props.simulationId)
+    simulationTasks.value = res.data?.tasks || []
+
+    if (selectedTaskRef.value) {
+      const stillExists = simulationTasks.value.some(task => (task.issue_key || task.task_id) === selectedTaskRef.value)
+      if (!stillExists) {
+        selectedTaskRef.value = ''
+      }
+    }
+  } catch (err) {
+    addLog(`Failed to load tasks: ${err.message}`)
+  }
+}
+
 // Click outside to close dropdown
 const handleClickOutside = (e) => {
   const dropdown = document.querySelector('.agent-dropdown')
@@ -948,6 +1102,7 @@ onMounted(() => {
   addLog('Step5 deep interaction initializing')
   loadReportData()
   loadProfiles()
+  loadTasks()
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -964,8 +1119,25 @@ watch(() => props.reportId, (newId) => {
 watch(() => props.simulationId, (newId) => {
   if (newId) {
     loadProfiles()
+    loadTasks()
   }
 }, { immediate: true })
+
+watch(selectedTaskRef, (newValue, oldValue) => {
+  if (oldValue === undefined) return
+
+  saveChatHistory(chatTarget.value, selectedAgentIndex.value, oldValue || '')
+  restoreChatHistory(chatTarget.value, selectedAgentIndex.value, newValue || '')
+
+  if (newValue) {
+    const task = taskOptions.value.find(item => (item.issue_key || item.task_id) === newValue)
+    if (task) {
+      addLog(`Task scope set to ${task.issue_key || task.task_id}`)
+    }
+  } else if (oldValue) {
+    addLog('Task scope cleared')
+  }
+})
 </script>
 
 <style scoped>
@@ -1441,6 +1613,92 @@ watch(() => props.simulationId, (newId) => {
   background: #047857;
   color: var(--text-primary);
   box-shadow: 0 2px 8px rgba(4, 120, 87, 0.2);
+}
+
+.task-scope-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.task-scope-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.task-scope-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.task-scope-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.task-scope-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.task-scope-select {
+  min-width: 280px;
+  max-width: 360px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.task-scope-select:focus {
+  outline: none;
+  border-color: var(--text-muted);
+}
+
+.task-scope-summary,
+.task-scope-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.task-scope-note-agent {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.task-scope-key,
+.task-scope-status,
+.task-scope-note-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.task-scope-note-body {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 /* Interaction Header */

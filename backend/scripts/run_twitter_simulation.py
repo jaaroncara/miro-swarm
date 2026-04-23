@@ -51,9 +51,17 @@ else:
 import re
 
 from app.utils.oasis_llm import create_oasis_model, get_oasis_semaphore
-from app.core.task_action_parser import parse_task_action, apply_task_action
 from app.core.simulation_task_store import get_simulation_task_store as _get_task_store
-from app.core.task_context_injector import inject_task_context
+from app.core.task_context_injector import (
+    inject_task_context,
+    task_requires_agent_response,
+)
+from app.core.task_round_processor import (
+    collect_structured_offer_pairs,
+    expire_unfinished_tasks,
+    load_mention_aliases,
+    process_task_actions_for_round,
+)
 
 
 class UnicodeFormatter(logging.Formatter):
@@ -88,6 +96,108 @@ class MaxTokensWarningFilter(logging.Filter):
 
 # Add filter immediately at module load time, ensuring it takes effect before camel code runs
 logging.getLogger().addFilter(MaxTokensWarningFilter())
+
+
+def _get_agent_names_from_config(config: Dict[str, Any]) -> Dict[int, str]:
+    agent_names: Dict[int, str] = {}
+    for agent_config in config.get("agent_configs", []):
+        agent_id = agent_config.get("agent_id")
+        if agent_id is None:
+            continue
+        agent_names[agent_id] = agent_config.get("entity_name", f"Agent_{agent_id}")
+    return agent_names
+
+
+def _fetch_new_public_actions(
+    db_path: str,
+    last_rowid: int,
+    agent_names: Dict[int, str],
+) -> tuple[List[Dict[str, Any]], int]:
+    actions: List[Dict[str, Any]] = []
+    new_last_rowid = last_rowid
+
+    if not os.path.exists(db_path):
+        return actions, new_last_rowid
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT rowid, user_id, action, info FROM trace WHERE rowid > ? ORDER BY rowid ASC",
+        (last_rowid,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    for rowid, user_id, action, info_json in rows:
+        new_last_rowid = rowid
+        if action not in ("create_post", "create_comment"):
+            continue
+
+        try:
+            raw_args = json.loads(info_json) if info_json else {}
+        except Exception:
+            raw_args = {}
+
+        action_args: Dict[str, Any] = {}
+        if "content" in raw_args:
+            action_args["content"] = raw_args["content"]
+        if "post_id" in raw_args:
+            action_args["post_id"] = raw_args["post_id"]
+        if "comment_id" in raw_args:
+            action_args["comment_id"] = raw_args["comment_id"]
+
+        actions.append(
+            {
+                "trace_rowid": rowid,
+                "agent_id": user_id,
+                "agent_name": agent_names.get(user_id, f"Agent_{user_id}"),
+                "action_type": action.upper(),
+                "action_args": action_args,
+            }
+        )
+
+    return actions, new_last_rowid
+
+
+def _add_task_obligated_agents(
+    active_agents: List[tuple[int, Any]],
+    task_store: Any,
+    env: Any,
+    agent_names: Dict[int, str],
+    *,
+    current_round: Optional[int] = None,
+    total_rounds: Optional[int] = None,
+) -> List[tuple[int, Any]]:
+    try:
+        obligated_names = {
+            task.assigned_to
+            for task in task_store.list_tasks()
+            if task.assigned_to
+            and task_requires_agent_response(
+                task,
+                current_round=current_round,
+                total_rounds=total_rounds,
+            )
+        }
+        if not obligated_names:
+            return active_agents
+
+        active_ids = {agent_id for agent_id, _ in active_agents}
+        name_to_id = {name: agent_id for agent_id, name in agent_names.items()}
+
+        additions: List[tuple[int, Any]] = []
+        for agent_name in obligated_names:
+            agent_id = name_to_id.get(agent_name)
+            if agent_id is None or agent_id in active_ids:
+                continue
+            additions.append((agent_id, env.agent_graph.get_agent(agent_id)))
+
+        if additions:
+            return active_agents + additions
+    except Exception:
+        pass
+
+    return active_agents
 
 
 def setup_oasis_logging(log_dir: str):
@@ -564,6 +674,10 @@ class TwitterSimulationRunner:
             model=model,
             available_actions=self.AVAILABLE_ACTIONS,
         )
+        agent_names = _get_agent_names_from_config(self.config)
+        for agent_id, agent in self.agent_graph.get_agents():
+            if agent_id not in agent_names:
+                agent_names[agent_id] = getattr(agent, "name", f"Agent_{agent_id}")
 
         # Database path
         db_path = self._get_db_path()
@@ -617,6 +731,7 @@ class TwitterSimulationRunner:
         start_time = datetime.now()
         last_rowid = 0  # Track last processed row in database
         _task_store = _get_task_store(self.config.get("simulation_id", "unknown"))
+        last_completed_round = 0
 
         for round_num in range(total_rounds):
             # Calculate current simulated time
@@ -628,51 +743,59 @@ class TwitterSimulationRunner:
             active_agents = self._get_active_agents_for_round(
                 self.env, simulated_hour, round_num
             )
+            active_agents = _add_task_obligated_agents(
+                active_agents,
+                _task_store,
+                self.env,
+                agent_names,
+                current_round=round_num + 1,
+                total_rounds=total_rounds,
+            )
 
             if not active_agents:
+                last_completed_round = round_num + 1
                 continue
 
-            inject_task_context(active_agents, _task_store, self.agent_graph)
+            inject_task_context(
+                active_agents,
+                _task_store,
+                self.agent_graph,
+                current_round=round_num + 1,
+                total_rounds=total_rounds,
+            )
 
+            existing_task_ids = {task.task_id for task in _task_store.list_tasks()}
             # Build actions
             actions = {agent: LLMAction() for _, agent in active_agents}
 
             # Execute actions
             await self.env.step(actions)
 
-            # --- task action processing ---
             try:
-                _conn = sqlite3.connect(db_path)
-                _cursor = _conn.cursor()
-                _cursor.execute(
-                    "SELECT rowid, user_id, action, info FROM trace WHERE rowid > ? ORDER BY rowid ASC",
-                    (last_rowid,),
+                actual_actions, last_rowid = _fetch_new_public_actions(
+                    db_path,
+                    last_rowid,
+                    agent_names,
                 )
-                _rows = _cursor.fetchall()
-                _conn.close()
-                for _rowid, _user_id, _action, _info_json in _rows:
-                    last_rowid = _rowid
-                    if _action not in ("create_post", "create_comment"):
-                        continue
-                    try:
-                        _args = json.loads(_info_json) if _info_json else {}
-                    except Exception:
-                        _args = {}
-                    _content = _args.get("content", "")
-                    if not _content:
-                        continue
-                    _parsed = parse_task_action(_content)
-                    if _parsed is None:
-                        continue
-                    apply_task_action(
-                        _parsed,
-                        agent_name=f"Agent_{_user_id}",
-                        simulation_id=self.config.get("simulation_id", "unknown"),
-                        store=_task_store,
-                    )
+                structured_offer_pairs = collect_structured_offer_pairs(
+                    _task_store,
+                    existing_task_ids,
+                )
+                mention_aliases = load_mention_aliases(db_path, agent_names)
+                process_task_actions_for_round(
+                    actual_actions=actual_actions,
+                    simulation_id=self.config.get("simulation_id", "unknown"),
+                    store=_task_store,
+                    platform="twitter",
+                    round_index=round_num + 1,
+                    total_rounds=total_rounds,
+                    mention_aliases=mention_aliases,
+                    structured_offer_pairs=structured_offer_pairs,
+                )
             except Exception as _exc:
                 print(f"  Task action processing error (round {round_num + 1}): {_exc}")
-            # --- end task action processing ---
+
+            last_completed_round = round_num + 1
 
             # Print progress
             if (round_num + 1) % 10 == 0 or round_num == 0:
@@ -684,6 +807,16 @@ class TwitterSimulationRunner:
                     f"- {len(active_agents)} agents active "
                     f"- elapsed: {elapsed:.1f}s"
                 )
+
+        expired_issue_keys = expire_unfinished_tasks(
+            simulation_id=self.config.get("simulation_id", "unknown"),
+            store=_task_store,
+            final_round=last_completed_round or None,
+        )
+        if expired_issue_keys:
+            print(
+                f"  Expired {len(expired_issue_keys)} unfinished task(s) at simulation end"
+            )
 
         total_elapsed = (datetime.now() - start_time).total_seconds()
         print(f"\nSimulation loop completed!")

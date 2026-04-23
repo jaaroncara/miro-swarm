@@ -172,9 +172,17 @@ def init_logging_for_simulation(simulation_dir: str):
 
 from action_logger import SimulationLogManager, PlatformActionLogger
 from app.utils.oasis_llm import create_oasis_model, get_oasis_semaphore
-from app.core.task_action_parser import parse_task_action, apply_task_action
 from app.core.simulation_task_store import get_simulation_task_store as _get_task_store
-from app.core.task_context_injector import inject_task_context
+from app.core.task_context_injector import (
+    inject_task_context,
+    task_requires_agent_response,
+)
+from app.core.task_round_processor import (
+    collect_structured_offer_pairs,
+    expire_unfinished_tasks,
+    load_mention_aliases,
+    process_task_actions_for_round,
+)
 
 try:
     from camel.models import ModelFactory
@@ -784,6 +792,7 @@ def fetch_new_actions_from_db(
 
             actions.append(
                 {
+                    "trace_rowid": rowid,
                     "agent_id": user_id,
                     "agent_name": agent_names.get(user_id, f"Agent_{user_id}"),
                     "action_type": action_type,
@@ -1059,8 +1068,11 @@ def _add_task_obligated_agents(
     task_store: Any,
     env: Any,
     agent_names: Dict[int, str],
+    *,
+    current_round: Optional[int] = None,
+    total_rounds: Optional[int] = None,
 ) -> List[Tuple[int, Any]]:
-    """Guarantee activation for agents with open or in-progress tasks this round.
+    """Guarantee activation for agents with required task responses this round.
 
     If an agent was not selected by the probabilistic round scheduler but has
     tasks assigned to them, they are appended to active_agents so that the
@@ -1076,10 +1088,15 @@ def _add_task_obligated_agents(
         Augmented active_agents list; original returned unchanged on any error.
     """
     try:
-        open_tasks = task_store.list_tasks(status="open")
-        in_progress_tasks = task_store.list_tasks(status="in_progress")
         obligated_names = {
-            t.assigned_to for t in open_tasks + in_progress_tasks if t.assigned_to
+            t.assigned_to
+            for t in task_store.list_tasks()
+            if t.assigned_to
+            and task_requires_agent_response(
+                t,
+                current_round=current_round,
+                total_rounds=total_rounds,
+            )
         }
         if not obligated_names:
             return active_agents
@@ -1293,7 +1310,6 @@ async def run_twitter_simulation(
     total_actions = 0
     last_rowid = 0  # Track last processed row in database (using rowid to avoid created_at format differences)
     _twitter_task_store = _get_task_store(config.get("simulation_id", "unknown"))
-    _twitter_pending_notifications: Dict[str, list] = {}
 
     # Execute initial events
     event_config = config.get("event_config", {})
@@ -1352,6 +1368,7 @@ async def run_twitter_simulation(
             )
 
     start_time = datetime.now()
+    last_completed_round = 0
 
     for round_num in range(total_rounds):
         # Check if shutdown signal was received
@@ -1371,7 +1388,12 @@ async def run_twitter_simulation(
         )
         # Always activate agents with pending assigned tasks, regardless of random selection
         active_agents = _add_task_obligated_agents(
-            active_agents, _twitter_task_store, result.env, agent_names
+            active_agents,
+            _twitter_task_store,
+            result.env,
+            agent_names,
+            current_round=round_num + 1,
+            total_rounds=total_rounds,
         )
 
         # Record round start regardless of whether there are active agents
@@ -1382,15 +1404,18 @@ async def run_twitter_simulation(
             # Record round end even when there are no active agents (actions_count=0)
             if action_logger:
                 action_logger.log_round_end(round_num + 1, 0)
+            last_completed_round = round_num + 1
             continue
 
         inject_task_context(
             active_agents,
             _twitter_task_store,
             result.agent_graph,
-            _twitter_pending_notifications,
+            current_round=round_num + 1,
+            total_rounds=total_rounds,
         )
 
+        existing_task_ids = {task.task_id for task in _twitter_task_store.list_tasks()}
         actions = {agent: LLMAction() for _, agent in active_agents}
         await result.env.step(actions)
 
@@ -1399,30 +1424,21 @@ async def run_twitter_simulation(
             db_path, last_rowid, agent_names
         )
 
-        # --- task action processing ---
-        for action_data in actual_actions:
-            content = (action_data.get("action_args") or {}).get("content", "")
-            if not content:
-                continue
-            parsed = parse_task_action(content)
-            if parsed is None:
-                continue
-            agent_name = action_data.get("agent_name", "unknown")
-            task_id = apply_task_action(
-                parsed,
-                agent_name=agent_name,
-                simulation_id=config.get("simulation_id", "unknown"),
-                store=_twitter_task_store,
-            )
-            # Queue a notification for the assigning agent when a task is completed or blocked
-            if task_id and parsed.action_type in ("complete", "update_status"):
-                task = _twitter_task_store.get_task(task_id)
-                if task and task.assigned_by:
-                    notif = _build_task_notification(task, agent_name, parsed)
-                    _twitter_pending_notifications.setdefault(
-                        task.assigned_by, []
-                    ).append(notif)
-        # --- end task action processing ---
+        structured_offer_pairs = collect_structured_offer_pairs(
+            _twitter_task_store,
+            existing_task_ids,
+        )
+        mention_aliases = load_mention_aliases(db_path, agent_names)
+        process_task_actions_for_round(
+            actual_actions=actual_actions,
+            simulation_id=config.get("simulation_id", "unknown"),
+            store=_twitter_task_store,
+            platform="twitter",
+            round_index=round_num + 1,
+            total_rounds=total_rounds,
+            mention_aliases=mention_aliases,
+            structured_offer_pairs=structured_offer_pairs,
+        )
 
         round_action_count = 0
         for action_data in actual_actions:
@@ -1440,6 +1456,8 @@ async def run_twitter_simulation(
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
 
+        last_completed_round = round_num + 1
+
         if (round_num + 1) % 20 == 0:
             progress = (round_num + 1) / total_rounds * 100
             log_info(
@@ -1447,6 +1465,16 @@ async def run_twitter_simulation(
             )
 
     # Note: do not close the environment, keep it for Interview use
+
+    expired_issue_keys = expire_unfinished_tasks(
+        simulation_id=config.get("simulation_id", "unknown"),
+        store=_twitter_task_store,
+        final_round=last_completed_round or None,
+    )
+    if expired_issue_keys:
+        log_info(
+            f"Expired {len(expired_issue_keys)} unfinished Twitter task(s) at simulation end"
+        )
 
     if action_logger:
         action_logger.log_simulation_end(total_rounds, total_actions)
@@ -1529,7 +1557,6 @@ async def run_reddit_simulation(
     total_actions = 0
     last_rowid = 0  # Track last processed row in database (using rowid to avoid created_at format differences)
     _reddit_task_store = _get_task_store(config.get("simulation_id", "unknown"))
-    _reddit_pending_notifications: Dict[str, list] = {}
 
     # Execute initial events
     event_config = config.get("event_config", {})
@@ -1599,6 +1626,7 @@ async def run_reddit_simulation(
             )
 
     start_time = datetime.now()
+    last_completed_round = 0
 
     for round_num in range(total_rounds):
         # Check if shutdown signal was received
@@ -1618,7 +1646,12 @@ async def run_reddit_simulation(
         )
         # Always activate agents with pending assigned tasks, regardless of random selection
         active_agents = _add_task_obligated_agents(
-            active_agents, _reddit_task_store, result.env, agent_names
+            active_agents,
+            _reddit_task_store,
+            result.env,
+            agent_names,
+            current_round=round_num + 1,
+            total_rounds=total_rounds,
         )
 
         # Record round start regardless of whether there are active agents
@@ -1629,15 +1662,18 @@ async def run_reddit_simulation(
             # Record round end even when there are no active agents (actions_count=0)
             if action_logger:
                 action_logger.log_round_end(round_num + 1, 0)
+            last_completed_round = round_num + 1
             continue
 
         inject_task_context(
             active_agents,
             _reddit_task_store,
             result.agent_graph,
-            _reddit_pending_notifications,
+            current_round=round_num + 1,
+            total_rounds=total_rounds,
         )
 
+        existing_task_ids = {task.task_id for task in _reddit_task_store.list_tasks()}
         actions = {agent: LLMAction() for _, agent in active_agents}
         await result.env.step(actions)
 
@@ -1646,30 +1682,21 @@ async def run_reddit_simulation(
             db_path, last_rowid, agent_names
         )
 
-        # --- task action processing ---
-        for action_data in actual_actions:
-            content = (action_data.get("action_args") or {}).get("content", "")
-            if not content:
-                continue
-            parsed = parse_task_action(content)
-            if parsed is None:
-                continue
-            agent_name = action_data.get("agent_name", "unknown")
-            task_id = apply_task_action(
-                parsed,
-                agent_name=agent_name,
-                simulation_id=config.get("simulation_id", "unknown"),
-                store=_reddit_task_store,
-            )
-            # Queue a notification for the assigning agent when a task is completed or blocked
-            if task_id and parsed.action_type in ("complete", "update_status"):
-                task = _reddit_task_store.get_task(task_id)
-                if task and task.assigned_by:
-                    notif = _build_task_notification(task, agent_name, parsed)
-                    _reddit_pending_notifications.setdefault(
-                        task.assigned_by, []
-                    ).append(notif)
-        # --- end task action processing ---
+        structured_offer_pairs = collect_structured_offer_pairs(
+            _reddit_task_store,
+            existing_task_ids,
+        )
+        mention_aliases = load_mention_aliases(db_path, agent_names)
+        process_task_actions_for_round(
+            actual_actions=actual_actions,
+            simulation_id=config.get("simulation_id", "unknown"),
+            store=_reddit_task_store,
+            platform="reddit",
+            round_index=round_num + 1,
+            total_rounds=total_rounds,
+            mention_aliases=mention_aliases,
+            structured_offer_pairs=structured_offer_pairs,
+        )
 
         round_action_count = 0
         for action_data in actual_actions:
@@ -1687,6 +1714,8 @@ async def run_reddit_simulation(
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
 
+        last_completed_round = round_num + 1
+
         if (round_num + 1) % 20 == 0:
             progress = (round_num + 1) / total_rounds * 100
             log_info(
@@ -1694,6 +1723,16 @@ async def run_reddit_simulation(
             )
 
     # Note: do not close the environment, keep it for Interview use
+
+    expired_issue_keys = expire_unfinished_tasks(
+        simulation_id=config.get("simulation_id", "unknown"),
+        store=_reddit_task_store,
+        final_round=last_completed_round or None,
+    )
+    if expired_issue_keys:
+        log_info(
+            f"Expired {len(expired_issue_keys)} unfinished Reddit task(s) at simulation end"
+        )
 
     if action_logger:
         action_logger.log_simulation_end(total_rounds, total_actions)

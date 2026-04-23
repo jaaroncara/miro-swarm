@@ -14,7 +14,7 @@ import time
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 
-from app.core.task_action_parser import TASK_ACTION_GRAMMAR
+from app.core.task_action_parser import TASK_MCP_PREFERRED_GUIDANCE
 from datetime import datetime
 
 from ..config import Config
@@ -1211,8 +1211,8 @@ Important:
                 # Handle newline characters (replace with spaces in CSV)
                 user_char = user_char.replace("\n", " ").replace("\r", " ")
 
-                # Always inject task-action grammar into the system prompt field
-                user_char = user_char + "\n\n" + TASK_ACTION_GRAMMAR
+                # Keep the profile prompt MCP-first; detailed XML fallback guidance is injected at runtime.
+                user_char = user_char + "\n\n" + TASK_MCP_PREFERRED_GUIDANCE
 
                 # description: Short bio, used for external display
                 description = profile.bio.replace("\n", " ").replace("\r", " ")
@@ -1280,8 +1280,8 @@ Important:
                 profile.persona
                 or f"{profile.name} is a participant in social discussions."
             )
-            # Always inject task-action grammar into the persona (system prompt) field
-            persona_val = persona_val + "\n\n" + TASK_ACTION_GRAMMAR
+            # Keep the profile prompt MCP-first; detailed XML fallback guidance is injected at runtime.
+            persona_val = persona_val + "\n\n" + TASK_MCP_PREFERRED_GUIDANCE
             item = {
                 "user_id": (
                     profile.user_id if profile.user_id is not None else idx

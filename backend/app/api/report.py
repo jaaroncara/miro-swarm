@@ -17,10 +17,11 @@ from ..models.project import ProjectManager
 from ..models.task import TaskManager
 from ..utils.logger import get_logger
 
-logger = get_logger('mirofish.api.report')
+logger = get_logger("mirofish.api.report")
 
 
 # ============== Report Generation API ==============
+
 
 def _task_to_dict(task) -> dict:
     """Normalize task objects and pre-serialized task dicts."""
@@ -54,56 +55,59 @@ def _build_status_data_from_report(report) -> dict:
         "report_id": report.report_id,
         "status": report.status.value,
         "progress": 100 if is_completed else 0,
-        "message": "Report already generated" if is_completed else (report.error or "Report status available"),
+        "message": (
+            "Report already generated"
+            if is_completed
+            else (report.error or "Report status available")
+        ),
         "already_completed": is_completed,
     }
 
 
-@report_bp.route('/generate', methods=['POST'])
+def _serialize_report_payload(report) -> dict:
+    """Attach deliverable manifest metadata to a persisted report payload."""
+    payload = report.to_dict()
+    payload["deliverables_manifest"] = ReportManager.get_deliverables_manifest(
+        report.report_id
+    )
+    return payload
+
+
+@report_bp.route("/generate", methods=["POST"])
 def generate_report():
     """Generate a simulation analysis report."""
     try:
         data = request.get_json() or {}
 
-        simulation_id = data.get('simulation_id')
+        simulation_id = data.get("simulation_id")
         if not simulation_id:
-            return jsonify({
-                "success": False,
-                "error": "Please provide simulation_id"
-            }), 400
+            return (
+                jsonify({"success": False, "error": "Please provide simulation_id"}),
+                400,
+            )
 
-        session = WorkbenchSession.open(simulation_id=simulation_id, metadata={"entrypoint": "api.report.generate"})
+        session = WorkbenchSession.open(
+            simulation_id=simulation_id, metadata={"entrypoint": "api.report.generate"}
+        )
         result = session.start_report_generation(
             simulation_id=simulation_id,
-            force_regenerate=data.get('force_regenerate', False),
+            force_regenerate=data.get("force_regenerate", False),
         )
 
-        return jsonify({
-            "success": True,
-            "data": result
-        })
+        return jsonify({"success": True, "data": result})
 
     except FileNotFoundError as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 404
+        return jsonify({"success": False, "error": str(e)}), 404
 
     except ValueError as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
     except Exception as e:
         logger.error(f"Failed to start report generation task: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/generate/status', methods=['GET', 'POST'])
+@report_bp.route("/generate/status", methods=["GET", "POST"])
 def get_generate_status():
     """
     Query report generation task progress
@@ -127,76 +131,75 @@ def get_generate_status():
     """
     try:
         report_id = None
-        if request.method == 'GET':
-            task_id = request.args.get('task_id')
-            simulation_id = request.args.get('simulation_id')
-            report_id = request.args.get('report_id')
+        if request.method == "GET":
+            task_id = request.args.get("task_id")
+            simulation_id = request.args.get("simulation_id")
+            report_id = request.args.get("report_id")
         else:
             data = request.get_json() or {}
-            task_id = data.get('task_id')
-            simulation_id = data.get('simulation_id')
-            report_id = data.get('report_id')
-        
+            task_id = data.get("task_id")
+            simulation_id = data.get("simulation_id")
+            report_id = data.get("report_id")
+
         if report_id:
             task_data = _get_generate_task_by_report_id(report_id)
             if task_data:
-                return jsonify({
-                    "success": True,
-                    "data": task_data
-                })
+                return jsonify({"success": True, "data": task_data})
 
             report = ReportManager.get_report(report_id)
             if report:
-                return jsonify({
-                    "success": True,
-                    "data": _build_status_data_from_report(report)
-                })
+                return jsonify(
+                    {"success": True, "data": _build_status_data_from_report(report)}
+                )
 
-            return jsonify({
-                "success": False,
-                "error": f"Report not found: {report_id}"
-            }), 404
+            return (
+                jsonify({"success": False, "error": f"Report not found: {report_id}"}),
+                404,
+            )
 
         # If simulation_id is provided, first check if a completed report already exists
         if simulation_id:
             existing_report = ReportManager.get_report_by_simulation(simulation_id)
             if existing_report and existing_report.status == ReportStatus.COMPLETED:
-                return jsonify({
-                    "success": True,
-                    "data": {
-                        "simulation_id": simulation_id,
-                        "report_id": existing_report.report_id,
-                        "status": "completed",
-                        "progress": 100,
-                        "message": "Report already generated",
-                        "already_completed": True
+                return jsonify(
+                    {
+                        "success": True,
+                        "data": {
+                            "simulation_id": simulation_id,
+                            "report_id": existing_report.report_id,
+                            "status": "completed",
+                            "progress": 100,
+                            "message": "Report already generated",
+                            "already_completed": True,
+                        },
                     }
-                })
-        
-        task = _find_report_task(task_id=task_id, simulation_id=simulation_id, report_id=report_id)
+                )
+
+        task = _find_report_task(
+            task_id=task_id, simulation_id=simulation_id, report_id=report_id
+        )
 
         if not task:
-            return jsonify({
-                "success": False,
-                "error": "Report generation task not found"
-            }), 404
-        
-        return jsonify({
-            "success": True,
-            "data": _normalize_task_status_data(_task_to_dict(task))
-        })
-        
+            return (
+                jsonify(
+                    {"success": False, "error": "Report generation task not found"}
+                ),
+                404,
+            )
+
+        return jsonify(
+            {"success": True, "data": _normalize_task_status_data(_task_to_dict(task))}
+        )
+
     except Exception as e:
         logger.error(f"Failed to query task status: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============== Report Retrieval API ==============
 
-@report_bp.route('/<report_id>', methods=['GET'])
+
+@report_bp.route("/<report_id>", methods=["GET"])
 def get_report(report_id: str):
     """
     Get report details
@@ -217,27 +220,21 @@ def get_report(report_id: str):
     """
     try:
         report = ReportManager.get_report(report_id)
-        
+
         if not report:
-            return jsonify({
-                "success": False,
-                "error": f"Report not found: {report_id}"
-            }), 404
-        
-        return jsonify({
-            "success": True,
-            "data": report.to_dict()
-        })
-        
+            return (
+                jsonify({"success": False, "error": f"Report not found: {report_id}"}),
+                404,
+            )
+
+        return jsonify({"success": True, "data": _serialize_report_payload(report)})
+
     except Exception as e:
         logger.error(f"Failed to get report: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/by-simulation/<simulation_id>', methods=['GET'])
+@report_bp.route("/by-simulation/<simulation_id>", methods=["GET"])
 def get_report_by_simulation(simulation_id: str):
     """
     Get report by simulation ID
@@ -253,29 +250,33 @@ def get_report_by_simulation(simulation_id: str):
     """
     try:
         report = ReportManager.get_report_by_simulation(simulation_id)
-        
+
         if not report:
-            return jsonify({
-                "success": False,
-                "error": f"No report available for this simulation: {simulation_id}",
-                "has_report": False
-            }), 404
-        
-        return jsonify({
-            "success": True,
-            "data": report.to_dict(),
-            "has_report": True
-        })
-        
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"No report available for this simulation: {simulation_id}",
+                        "has_report": False,
+                    }
+                ),
+                404,
+            )
+
+        return jsonify(
+            {
+                "success": True,
+                "data": _serialize_report_payload(report),
+                "has_report": True,
+            }
+        )
+
     except Exception as e:
         logger.error(f"Failed to get report: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/list', methods=['GET'])
+@report_bp.route("/list", methods=["GET"])
 def list_reports():
     """
     List all reports
@@ -292,29 +293,25 @@ def list_reports():
         }
     """
     try:
-        simulation_id = request.args.get('simulation_id')
-        limit = request.args.get('limit', 50, type=int)
-        
-        reports = ReportManager.list_reports(
-            simulation_id=simulation_id,
-            limit=limit
+        simulation_id = request.args.get("simulation_id")
+        limit = request.args.get("limit", 50, type=int)
+
+        reports = ReportManager.list_reports(simulation_id=simulation_id, limit=limit)
+
+        return jsonify(
+            {
+                "success": True,
+                "data": [_serialize_report_payload(r) for r in reports],
+                "count": len(reports),
+            }
         )
-        
-        return jsonify({
-            "success": True,
-            "data": [r.to_dict() for r in reports],
-            "count": len(reports)
-        })
-        
+
     except Exception as e:
         logger.error(f"Failed to list reports: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/<report_id>/download', methods=['GET'])
+@report_bp.route("/<report_id>/download", methods=["GET"])
 def download_report(report_id: str):
     """
     Download report (Markdown format)
@@ -323,70 +320,57 @@ def download_report(report_id: str):
     """
     try:
         report = ReportManager.get_report(report_id)
-        
+
         if not report:
-            return jsonify({
-                "success": False,
-                "error": f"Report not found: {report_id}"
-            }), 404
-        
+            return (
+                jsonify({"success": False, "error": f"Report not found: {report_id}"}),
+                404,
+            )
+
         md_path = ReportManager._get_report_markdown_path(report_id)
-        
+
         if not os.path.exists(md_path):
             # If MD file doesn't exist, generate a temporary file
             import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
                 f.write(report.markdown_content)
                 temp_path = f.name
-            
+
             return send_file(
-                temp_path,
-                as_attachment=True,
-                download_name=f"{report_id}.md"
+                temp_path, as_attachment=True, download_name=f"{report_id}.md"
             )
-        
-        return send_file(
-            md_path,
-            as_attachment=True,
-            download_name=f"{report_id}.md"
-        )
-        
+
+        return send_file(md_path, as_attachment=True, download_name=f"{report_id}.md")
+
     except Exception as e:
         logger.error(f"Failed to download report: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/<report_id>', methods=['DELETE'])
+@report_bp.route("/<report_id>", methods=["DELETE"])
 def delete_report(report_id: str):
     """Delete report"""
     try:
         success = ReportManager.delete_report(report_id)
-        
+
         if not success:
-            return jsonify({
-                "success": False,
-                "error": f"Report not found: {report_id}"
-            }), 404
-        
-        return jsonify({
-            "success": True,
-            "message": f"Report deleted: {report_id}"
-        })
-        
+            return (
+                jsonify({"success": False, "error": f"Report not found: {report_id}"}),
+                404,
+            )
+
+        return jsonify({"success": True, "message": f"Report deleted: {report_id}"})
+
     except Exception as e:
         logger.error(f"Failed to delete report: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============== Report Agent Chat API ==============
 
-@report_bp.route('/chat', methods=['POST'])
+
+@report_bp.route("/chat", methods=["POST"])
 def chat_with_report_agent():
     """
     Chat with Report Agent
@@ -415,74 +399,103 @@ def chat_with_report_agent():
     """
     try:
         data = request.get_json() or {}
-        
-        simulation_id = data.get('simulation_id')
-        message = data.get('message')
-        chat_history = data.get('chat_history', [])
-        
+
+        simulation_id = data.get("simulation_id")
+        message = data.get("message")
+        chat_history = data.get("chat_history", [])
+        task_ref = data.get("task_ref")
+
         if not simulation_id:
-            return jsonify({
-                "success": False,
-                "error": "Please provide simulation_id"
-            }), 400
-        
+            return (
+                jsonify({"success": False, "error": "Please provide simulation_id"}),
+                400,
+            )
+
         if not message:
-            return jsonify({
-                "success": False,
-                "error": "Please provide message"
-            }), 400
-        
+            return jsonify({"success": False, "error": "Please provide message"}), 400
+
         # Get simulation and project info
         manager = SimulationManager()
         state = manager.get_simulation(simulation_id)
-        
+
         if not state:
-            return jsonify({
-                "success": False,
-                "error": f"Simulation not found: {simulation_id}"
-            }), 404
-        
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Simulation not found: {simulation_id}",
+                    }
+                ),
+                404,
+            )
+
         project = ProjectManager.get_project(state.project_id)
         if not project:
-            return jsonify({
-                "success": False,
-                "error": f"Project not found: {state.project_id}"
-            }), 404
-        
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Project not found: {state.project_id}",
+                    }
+                ),
+                404,
+            )
+
         graph_id = state.graph_id or project.graph_id
         if not graph_id:
-            return jsonify({
-                "success": False,
-                "error": "Missing graph ID"
-            }), 400
-        
+            return jsonify({"success": False, "error": "Missing graph ID"}), 400
+
         simulation_requirement = project.simulation_requirement or ""
-        
+
         # Create Agent and conduct chat
         agent = ReportAgent(
             graph_id=graph_id,
             simulation_id=simulation_id,
-            simulation_requirement=simulation_requirement
+            simulation_requirement=simulation_requirement,
         )
-        
-        result = agent.chat(message=message, chat_history=chat_history)
-        
-        return jsonify({
-            "success": True,
-            "data": result
-        })
-        
+
+        result = agent.chat(
+            message=message,
+            chat_history=chat_history,
+            task_ref=task_ref,
+        )
+        if task_ref:
+            result["task_ref"] = task_ref
+
+        return jsonify({"success": True, "data": result})
+
     except Exception as e:
         logger.error(f"Chat failed: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@report_bp.route("/<report_id>/deliverables", methods=["GET"])
+def get_report_deliverables(report_id: str):
+    """Return the packaged deliverables manifest for a report."""
+    try:
+        report = ReportManager.get_report(report_id)
+        if not report:
+            return (
+                jsonify({"success": False, "error": f"Report not found: {report_id}"}),
+                404,
+            )
+
+        return jsonify(
+            {
+                "success": True,
+                "data": ReportManager.get_deliverables_manifest(report_id),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get report deliverables: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============== Report Progress and Section API ==============
 
-@report_bp.route('/<report_id>/progress', methods=['GET'])
+
+@report_bp.route("/<report_id>/progress", methods=["GET"])
 def get_report_progress(report_id: str):
     """
     Get report generation progress (real-time)
@@ -502,27 +515,26 @@ def get_report_progress(report_id: str):
     """
     try:
         progress = ReportManager.get_progress(report_id)
-        
+
         if not progress:
-            return jsonify({
-                "success": False,
-                "error": f"Report not found or progress info unavailable: {report_id}"
-            }), 404
-        
-        return jsonify({
-            "success": True,
-            "data": progress
-        })
-        
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Report not found or progress info unavailable: {report_id}",
+                    }
+                ),
+                404,
+            )
+
+        return jsonify({"success": True, "data": progress})
+
     except Exception as e:
         logger.error(f"Failed to get report progress: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/<report_id>/sections', methods=['GET'])
+@report_bp.route("/<report_id>/sections", methods=["GET"])
 def get_report_sections(report_id: str):
     """
     Get list of generated sections (per-section output)
@@ -549,30 +561,29 @@ def get_report_sections(report_id: str):
     """
     try:
         sections = ReportManager.get_generated_sections(report_id)
-        
+
         # Get report status
         report = ReportManager.get_report(report_id)
         is_complete = report is not None and report.status == ReportStatus.COMPLETED
-        
-        return jsonify({
-            "success": True,
-            "data": {
-                "report_id": report_id,
-                "sections": sections,
-                "total_sections": len(sections),
-                "is_complete": is_complete
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "report_id": report_id,
+                    "sections": sections,
+                    "total_sections": len(sections),
+                    "is_complete": is_complete,
+                },
             }
-        })
-        
+        )
+
     except Exception as e:
         logger.error(f"Failed to get section list: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/<report_id>/section/<int:section_index>', methods=['GET'])
+@report_bp.route("/<report_id>/section/<int:section_index>", methods=["GET"])
 def get_single_section(report_id: str, section_index: int):
     """
     Get single section content
@@ -588,42 +599,47 @@ def get_single_section(report_id: str, section_index: int):
     """
     try:
         section_path = ReportManager._get_section_path(report_id, section_index)
-        
+
         if not os.path.exists(section_path):
-            return jsonify({
-                "success": False,
-                "error": f"Section not found: section_{section_index:02d}.md"
-            }), 404
-        
-        with open(section_path, 'r', encoding='utf-8') as f:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Section not found: section_{section_index:02d}.md",
+                    }
+                ),
+                404,
+            )
+
+        with open(section_path, "r", encoding="utf-8") as f:
             content = f.read()
-        
-        return jsonify({
-            "success": True,
-            "data": {
-                "filename": f"section_{section_index:02d}.md",
-                "section_index": section_index,
-                "content": content
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "filename": f"section_{section_index:02d}.md",
+                    "section_index": section_index,
+                    "content": content,
+                },
             }
-        })
-        
+        )
+
     except Exception as e:
         logger.error(f"Failed to get section content: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============== Report Status Check API ==============
 
-@report_bp.route('/check/<simulation_id>', methods=['GET'])
+
+@report_bp.route("/check/<simulation_id>", methods=["GET"])
 def check_report_status(simulation_id: str):
     """
     Check if a simulation has a report and its status
 
     Used by frontend to determine whether to unlock Interview feature
-    
+
     Returns:
         {
             "success": true,
@@ -638,36 +654,36 @@ def check_report_status(simulation_id: str):
     """
     try:
         report = ReportManager.get_report_by_simulation(simulation_id)
-        
+
         has_report = report is not None
         report_status = report.status.value if report else None
         report_id = report.report_id if report else None
-        
+
         # Only unlock interview after report is completed
         interview_unlocked = has_report and report.status == ReportStatus.COMPLETED
-        
-        return jsonify({
-            "success": True,
-            "data": {
-                "simulation_id": simulation_id,
-                "has_report": has_report,
-                "report_status": report_status,
-                "report_id": report_id,
-                "interview_unlocked": interview_unlocked
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "simulation_id": simulation_id,
+                    "has_report": has_report,
+                    "report_status": report_status,
+                    "report_id": report_id,
+                    "interview_unlocked": interview_unlocked,
+                },
             }
-        })
-        
+        )
+
     except Exception as e:
         logger.error(f"Failed to check report status: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============== Agent Log API ==============
 
-@report_bp.route('/<report_id>/agent-log', methods=['GET'])
+
+@report_bp.route("/<report_id>/agent-log", methods=["GET"])
 def get_agent_log(report_id: str):
     """
     Get detailed execution log of Report Agent
@@ -708,24 +724,18 @@ def get_agent_log(report_id: str):
         }
     """
     try:
-        from_line = request.args.get('from_line', 0, type=int)
-        
+        from_line = request.args.get("from_line", 0, type=int)
+
         log_data = ReportManager.get_agent_log(report_id, from_line=from_line)
-        
-        return jsonify({
-            "success": True,
-            "data": log_data
-        })
-        
+
+        return jsonify({"success": True, "data": log_data})
+
     except Exception as e:
         logger.error(f"Failed to get Agent log: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/<report_id>/agent-log/stream', methods=['GET'])
+@report_bp.route("/<report_id>/agent-log/stream", methods=["GET"])
 def stream_agent_log(report_id: str):
     """
     Get complete Agent log (fetch all at once)
@@ -741,26 +751,18 @@ def stream_agent_log(report_id: str):
     """
     try:
         logs = ReportManager.get_agent_log_stream(report_id)
-        
-        return jsonify({
-            "success": True,
-            "data": {
-                "logs": logs,
-                "count": len(logs)
-            }
-        })
-        
+
+        return jsonify({"success": True, "data": {"logs": logs, "count": len(logs)}})
+
     except Exception as e:
         logger.error(f"Failed to get Agent log: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============== Console Log API ==============
 
-@report_bp.route('/<report_id>/console-log', methods=['GET'])
+
+@report_bp.route("/<report_id>/console-log", methods=["GET"])
 def get_console_log(report_id: str):
     """
     Get Report Agent console output log
@@ -788,24 +790,18 @@ def get_console_log(report_id: str):
         }
     """
     try:
-        from_line = request.args.get('from_line', 0, type=int)
-        
+        from_line = request.args.get("from_line", 0, type=int)
+
         log_data = ReportManager.get_console_log(report_id, from_line=from_line)
-        
-        return jsonify({
-            "success": True,
-            "data": log_data
-        })
-        
+
+        return jsonify({"success": True, "data": log_data})
+
     except Exception as e:
         logger.error(f"Failed to get console log: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/<report_id>/console-log/stream', methods=['GET'])
+@report_bp.route("/<report_id>/console-log/stream", methods=["GET"])
 def stream_console_log(report_id: str):
     """
     Get complete console log (fetch all at once)
@@ -821,26 +817,18 @@ def stream_console_log(report_id: str):
     """
     try:
         logs = ReportManager.get_console_log_stream(report_id)
-        
-        return jsonify({
-            "success": True,
-            "data": {
-                "logs": logs,
-                "count": len(logs)
-            }
-        })
-        
+
+        return jsonify({"success": True, "data": {"logs": logs, "count": len(logs)}})
+
     except Exception as e:
         logger.error(f"Failed to get console log: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============== Tool Call API (for debugging) ==============
 
-@report_bp.route('/tools/search', methods=['POST'])
+
+@report_bp.route("/tools/search", methods=["POST"])
 def search_graph_tool():
     """
     Graph search tool endpoint (for debugging)
@@ -854,40 +842,32 @@ def search_graph_tool():
     """
     try:
         data = request.get_json() or {}
-        
-        graph_id = data.get('graph_id')
-        query = data.get('query')
-        limit = data.get('limit', 10)
-        
+
+        graph_id = data.get("graph_id")
+        query = data.get("query")
+        limit = data.get("limit", 10)
+
         if not graph_id or not query:
-            return jsonify({
-                "success": False,
-                "error": "Please provide graph_id and query"
-            }), 400
-        
+            return (
+                jsonify(
+                    {"success": False, "error": "Please provide graph_id and query"}
+                ),
+                400,
+            )
+
         from ..services.graph_tools import GraphToolsService
-        
+
         tools = GraphToolsService()
-        result = tools.search_graph(
-            graph_id=graph_id,
-            query=query,
-            limit=limit
-        )
-        
-        return jsonify({
-            "success": True,
-            "data": result.to_dict()
-        })
-        
+        result = tools.search_graph(graph_id=graph_id, query=query, limit=limit)
+
+        return jsonify({"success": True, "data": result.to_dict()})
+
     except Exception as e:
         logger.error(f"Graph search failed: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route('/tools/statistics', methods=['POST'])
+@report_bp.route("/tools/statistics", methods=["POST"])
 def get_graph_statistics_tool():
     """
     Graph statistics tool endpoint (for debugging)
@@ -899,28 +879,19 @@ def get_graph_statistics_tool():
     """
     try:
         data = request.get_json() or {}
-        
-        graph_id = data.get('graph_id')
-        
+
+        graph_id = data.get("graph_id")
+
         if not graph_id:
-            return jsonify({
-                "success": False,
-                "error": "Please provide graph_id"
-            }), 400
-        
+            return jsonify({"success": False, "error": "Please provide graph_id"}), 400
+
         from ..services.graph_tools import GraphToolsService
-        
+
         tools = GraphToolsService()
         result = tools.get_graph_statistics(graph_id)
-        
-        return jsonify({
-            "success": True,
-            "data": result
-        })
-        
+
+        return jsonify({"success": True, "data": result})
+
     except Exception as e:
         logger.error(f"Failed to get graph statistics: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500

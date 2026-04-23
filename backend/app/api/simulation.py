@@ -3,12 +3,19 @@ Simulation-related API routes
 Step2: Entity reading & filtering, OASIS simulation preparation & execution (fully automated)
 """
 
+import base64
+import binascii
 import os
 from flask import request, jsonify, send_file
 
 from . import simulation_bp
 from ..config import Config
-from ..core.simulation_task_store import get_simulation_task_store
+from ..core.simulation_task_store import (
+    TASK_STATUS_DONE,
+    TASK_STATUS_ORDER,
+    TERMINAL_TASK_STATUSES,
+    get_simulation_task_store,
+)
 from ..core.task_lifecycle import (
     TaskAuthorizationError,
     TaskLifecycleError,
@@ -27,7 +34,7 @@ from ..models.project import ProjectManager
 
 logger = get_logger("mirofish.api.simulation")
 
-_TASK_API_VALID_STATUSES = ("open", "in_progress", "blocked", "done")
+_TASK_API_VALID_STATUSES = TASK_STATUS_ORDER
 
 
 # Interview prompt optimization prefix
@@ -467,12 +474,131 @@ def _parse_optional_bool_query(value: str | None):
     raise ValueError("Invalid boolean value. Use one of: true, false, 1, 0, yes, no.")
 
 
-def _serialize_simulation_task(task):
+def _parse_bool_query(value: str | None, default: bool = False) -> bool:
+    parsed = _parse_optional_bool_query(value)
+    return default if parsed is None else parsed
+
+
+def _get_run_state_current_round(simulation_id: str) -> int | None:
+    run_state = SimulationRunner.get_run_state(simulation_id)
+    if not run_state or not run_state.current_round:
+        return None
+    return run_state.current_round
+
+
+def _decode_task_artifact_content(content: str, encoding: str) -> str | bytes:
+    normalized_encoding = (encoding or "utf-8").strip().lower()
+    if normalized_encoding in {"utf-8", "utf8", "text", "plain"}:
+        return content
+    if normalized_encoding in {"base64", "b64"}:
+        try:
+            return base64.b64decode(content, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise TaskLifecycleError(f"Invalid base64 artifact payload: {exc}") from exc
+    raise TaskLifecycleError(
+        f"Unsupported artifact encoding '{encoding}'. Use utf-8 or base64."
+    )
+
+
+def _validate_task_artifact_filename(filename: str) -> str:
+    normalized_filename = str(filename or "").strip()
+    if not normalized_filename:
+        raise TaskLifecycleError("Task artifacts require a filename.")
+
+    extension = os.path.splitext(normalized_filename)[1].lstrip(".").lower()
+    if extension not in Config.ALLOWED_EXTENSIONS:
+        allowed = ", ".join(sorted(Config.ALLOWED_EXTENSIONS))
+        raise TaskLifecycleError(
+            f"Unsupported artifact file type '{extension}'. Allowed types: {allowed}."
+        )
+    return normalized_filename
+
+
+def _serialize_task_artifact(simulation_id: str, task_ref: str, artifact) -> dict:
+    if hasattr(artifact, "to_dict"):
+        payload = artifact.to_dict()
+    elif hasattr(artifact, "__dict__"):
+        payload = dict(artifact.__dict__)
+    else:
+        payload = dict(artifact)
+    payload["download_url"] = (
+        f"/api/simulation/{simulation_id}/tasks/{task_ref}/artifacts/{payload['artifact_id']}"
+    )
+    return payload
+
+
+def _build_task_deadline_payload(task, current_round: int | None) -> dict:
+    due_round = getattr(task, "due_round", None)
+    remaining_rounds = None
+    if current_round is not None and due_round is not None:
+        remaining_rounds = max(due_round - current_round, 0)
+    return {
+        "created_round": getattr(task, "created_round", None),
+        "due_round": due_round,
+        "round_budget": getattr(task, "round_budget", None),
+        "deadline_at": getattr(task, "deadline_at", None),
+        "remaining_rounds": remaining_rounds,
+        "is_due_now": remaining_rounds == 0 if remaining_rounds is not None else False,
+    }
+
+
+def _serialize_task_event(simulation_id: str, task, event) -> dict:
+    return {
+        "entry_type": "task_event",
+        "simulation_id": simulation_id,
+        "issue_key": task.issue_key,
+        "task_id": task.task_id,
+        "task_title": task.title,
+        "task_status": task.status,
+        "assigned_by": task.assigned_by,
+        "assigned_to": task.assigned_to,
+        "platform": (task.origin_metadata or {}).get("platform"),
+        "event_id": event.event_id,
+        "event_type": event.event_type,
+        "timestamp": event.created_at,
+        "round_num": event.round_index,
+        "actor": event.actor,
+        "details": event.details,
+        "artifact_summaries": [
+            _serialize_task_artifact(simulation_id, task.issue_key, artifact)
+            for artifact in event.artifact_refs or []
+        ],
+    }
+
+
+def _build_merged_activity_feed(actions: list, task_events: list[dict]) -> list[dict]:
+    merged = [
+        {
+            "entry_type": "action",
+            **action.to_dict(),
+        }
+        for action in actions
+    ]
+    merged.extend(task_events)
+    merged.sort(
+        key=lambda item: (
+            item.get("timestamp") or "",
+            item.get("entry_type") or "",
+            item.get("round_num") or 0,
+        )
+    )
+    return merged
+
+
+def _serialize_simulation_task(task, *, simulation_id: str, current_round: int | None):
     payload = task.to_dict()
     events = payload.get("events") or []
-    payload["is_completed"] = task.status == "done"
+    payload["is_completed"] = task.status == TASK_STATUS_DONE
+    payload["is_terminal"] = task.status in TERMINAL_TASK_STATUSES
     payload["events_count"] = len(events)
     payload["latest_event"] = events[-1] if events else None
+    payload["artifact_count"] = len(getattr(task, "artifact_refs", []) or [])
+    payload["deadline"] = _build_task_deadline_payload(task, current_round)
+    payload["artifact_summaries"] = [
+        _serialize_task_artifact(simulation_id, task.issue_key, artifact)
+        for artifact in getattr(task, "artifact_refs", []) or []
+    ]
+    payload["offer_pending"] = task.status == "offered"
     payload["participants"] = {
         "assigned_by": task.assigned_by,
         "assigned_to": task.assigned_to,
@@ -480,8 +606,21 @@ def _serialize_simulation_task(task):
     return payload
 
 
-def _build_task_collection_payload(simulation_id: str, tasks: list, filters: dict):
-    serialized_tasks = [_serialize_simulation_task(task) for task in tasks]
+def _build_task_collection_payload(
+    simulation_id: str,
+    tasks: list,
+    filters: dict,
+    *,
+    current_round: int | None,
+):
+    serialized_tasks = [
+        _serialize_simulation_task(
+            task,
+            simulation_id=simulation_id,
+            current_round=current_round,
+        )
+        for task in tasks
+    ]
     status_counts = {status: 0 for status in _TASK_API_VALID_STATUSES}
     for task in tasks:
         if task.status in status_counts:
@@ -590,19 +729,24 @@ def get_simulation_tasks(simulation_id: str):
         }
 
         store = get_simulation_task_store(simulation_id)
+        run_state = SimulationRunner.get_run_state(simulation_id)
         tasks = store.list_tasks(
             assigned_to=assigned_to,
             status=status,
             completed=completed,
             issue_key=issue_key,
+            assigned_by=assigned_by,
         )
-        if assigned_by is not None:
-            tasks = [task for task in tasks if task.assigned_by == assigned_by]
 
         return jsonify(
             {
                 "success": True,
-                "data": _build_task_collection_payload(simulation_id, tasks, filters),
+                "data": _build_task_collection_payload(
+                    simulation_id,
+                    tasks,
+                    filters,
+                    current_round=(run_state.current_round if run_state else None),
+                ),
             }
         )
 
@@ -635,7 +779,11 @@ def create_simulation_task(simulation_id: str):
                     "success": True,
                     "data": {
                         "simulation_id": simulation_id,
-                        "task": _serialize_simulation_task(task),
+                        "task": _serialize_simulation_task(
+                            task,
+                            simulation_id=simulation_id,
+                            current_round=_get_run_state_current_round(simulation_id),
+                        ),
                     },
                 }
             ),
@@ -677,7 +825,11 @@ def get_simulation_task(simulation_id: str, task_ref: str):
                 "success": True,
                 "data": {
                     "simulation_id": simulation_id,
-                    "task": _serialize_simulation_task(task),
+                    "task": _serialize_simulation_task(
+                        task,
+                        simulation_id=simulation_id,
+                        current_round=_get_run_state_current_round(simulation_id),
+                    ),
                 },
             }
         )
@@ -687,6 +839,76 @@ def get_simulation_task(simulation_id: str, task_ref: str):
 
     except Exception as e:
         logger.error(f"Failed to get simulation task: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@simulation_bp.route("/<simulation_id>/tasks/<task_ref>/accept", methods=["POST"])
+def accept_simulation_task(simulation_id: str, task_ref: str):
+    """Accept a pending task offer."""
+    try:
+        data = request.get_json(silent=True) or {}
+        lifecycle = TaskLifecycleService(simulation_id=simulation_id)
+        task = lifecycle.accept_task(
+            task_ref=task_ref,
+            actor=_get_task_actor(data),
+            reason=str(data.get("reason") or ""),
+            round_index=_get_run_state_current_round(simulation_id),
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "simulation_id": simulation_id,
+                    "task": _serialize_simulation_task(
+                        task,
+                        simulation_id=simulation_id,
+                        current_round=_get_run_state_current_round(simulation_id),
+                    ),
+                },
+            }
+        )
+
+    except (TaskAuthorizationError, TaskLifecycleError) as exc:
+        return _task_error_response(exc)
+
+    except Exception as e:
+        logger.error(f"Failed to accept simulation task: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@simulation_bp.route("/<simulation_id>/tasks/<task_ref>/decline", methods=["POST"])
+def decline_simulation_task(simulation_id: str, task_ref: str):
+    """Decline a pending task offer."""
+    try:
+        data = request.get_json(silent=True) or {}
+        lifecycle = TaskLifecycleService(simulation_id=simulation_id)
+        task = lifecycle.decline_task(
+            task_ref=task_ref,
+            actor=_get_task_actor(data),
+            reason=str(data.get("reason") or ""),
+            round_index=_get_run_state_current_round(simulation_id),
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "simulation_id": simulation_id,
+                    "task": _serialize_simulation_task(
+                        task,
+                        simulation_id=simulation_id,
+                        current_round=_get_run_state_current_round(simulation_id),
+                    ),
+                },
+            }
+        )
+
+    except (TaskAuthorizationError, TaskLifecycleError) as exc:
+        return _task_error_response(exc)
+
+    except Exception as e:
+        logger.error(f"Failed to decline simulation task: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -700,6 +922,7 @@ def start_simulation_task(simulation_id: str, task_ref: str):
             task_ref=task_ref,
             actor=_get_task_actor(data),
             reason=str(data.get("reason") or ""),
+            round_index=_get_run_state_current_round(simulation_id),
         )
 
         return jsonify(
@@ -707,7 +930,11 @@ def start_simulation_task(simulation_id: str, task_ref: str):
                 "success": True,
                 "data": {
                     "simulation_id": simulation_id,
-                    "task": _serialize_simulation_task(task),
+                    "task": _serialize_simulation_task(
+                        task,
+                        simulation_id=simulation_id,
+                        current_round=_get_run_state_current_round(simulation_id),
+                    ),
                 },
             }
         )
@@ -730,6 +957,7 @@ def block_simulation_task(simulation_id: str, task_ref: str):
             task_ref=task_ref,
             actor=_get_task_actor(data),
             reason=str(data.get("reason") or ""),
+            round_index=_get_run_state_current_round(simulation_id),
         )
 
         return jsonify(
@@ -737,7 +965,11 @@ def block_simulation_task(simulation_id: str, task_ref: str):
                 "success": True,
                 "data": {
                     "simulation_id": simulation_id,
-                    "task": _serialize_simulation_task(task),
+                    "task": _serialize_simulation_task(
+                        task,
+                        simulation_id=simulation_id,
+                        current_round=_get_run_state_current_round(simulation_id),
+                    ),
                 },
             }
         )
@@ -760,6 +992,7 @@ def complete_simulation_task(simulation_id: str, task_ref: str):
             task_ref=task_ref,
             actor=_get_task_actor(data),
             output=str(data.get("output") or ""),
+            round_index=_get_run_state_current_round(simulation_id),
         )
 
         return jsonify(
@@ -767,7 +1000,11 @@ def complete_simulation_task(simulation_id: str, task_ref: str):
                 "success": True,
                 "data": {
                     "simulation_id": simulation_id,
-                    "task": _serialize_simulation_task(task),
+                    "task": _serialize_simulation_task(
+                        task,
+                        simulation_id=simulation_id,
+                        current_round=_get_run_state_current_round(simulation_id),
+                    ),
                 },
             }
         )
@@ -777,6 +1014,177 @@ def complete_simulation_task(simulation_id: str, task_ref: str):
 
     except Exception as e:
         logger.error(f"Failed to complete simulation task: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@simulation_bp.route("/<simulation_id>/tasks/<task_ref>/artifacts", methods=["GET"])
+def list_simulation_task_artifacts(simulation_id: str, task_ref: str):
+    """List staged artifacts for a task."""
+    try:
+        actor = (request.args.get("actor") or "").strip()
+        lifecycle = TaskLifecycleService(simulation_id=simulation_id)
+        task = (
+            lifecycle.get_task_for_actor(task_ref, actor)
+            if actor
+            else lifecycle.get_task(task_ref)
+        )
+        if task is None:
+            return (
+                jsonify({"success": False, "error": f"Task not found: {task_ref}"}),
+                404,
+            )
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "simulation_id": simulation_id,
+                    "task_ref": task_ref,
+                    "artifacts": [
+                        _serialize_task_artifact(
+                            simulation_id, task.issue_key, artifact
+                        )
+                        for artifact in task.artifact_refs or []
+                    ],
+                },
+            }
+        )
+
+    except (TaskAuthorizationError, TaskLifecycleError) as exc:
+        return _task_error_response(exc)
+
+    except Exception as e:
+        logger.error(f"Failed to list task artifacts: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@simulation_bp.route("/<simulation_id>/tasks/<task_ref>/artifacts", methods=["POST"])
+def save_simulation_task_artifact(simulation_id: str, task_ref: str):
+    """Upload a task artifact using JSON content or base64-encoded bytes."""
+    try:
+        data = request.get_json(silent=True) or {}
+        lifecycle = TaskLifecycleService(simulation_id=simulation_id)
+        artifact = lifecycle.save_artifact(
+            task_ref,
+            actor=_get_task_actor(data),
+            filename=_validate_task_artifact_filename(str(data.get("filename") or "")),
+            content=_decode_task_artifact_content(
+                str(data.get("content") or ""),
+                str(data.get("encoding") or "utf-8"),
+            ),
+            media_type=str(data.get("media_type") or "") or None,
+            kind=str(data.get("kind") or "deliverable") or "deliverable",
+            note=str(data.get("note") or "") or None,
+        )
+        task = lifecycle.get_task(task_ref)
+
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "data": {
+                        "simulation_id": simulation_id,
+                        "artifact": _serialize_task_artifact(
+                            simulation_id,
+                            task.issue_key if task is not None else task_ref,
+                            artifact,
+                        ),
+                        "task": (
+                            _serialize_simulation_task(
+                                task,
+                                simulation_id=simulation_id,
+                                current_round=_get_run_state_current_round(
+                                    simulation_id
+                                ),
+                            )
+                            if task is not None
+                            else None
+                        ),
+                    },
+                }
+            ),
+            201,
+        )
+
+    except (TaskAuthorizationError, TaskLifecycleError) as exc:
+        return _task_error_response(exc)
+
+    except Exception as e:
+        logger.error(f"Failed to save task artifact: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@simulation_bp.route(
+    "/<simulation_id>/tasks/<task_ref>/artifacts/<artifact_id>",
+    methods=["GET"],
+)
+def download_simulation_task_artifact(
+    simulation_id: str,
+    task_ref: str,
+    artifact_id: str,
+):
+    """Download a previously staged task artifact."""
+    try:
+        actor = (request.args.get("actor") or "").strip()
+        lifecycle = TaskLifecycleService(simulation_id=simulation_id)
+        task = (
+            lifecycle.get_task_for_actor(task_ref, actor)
+            if actor
+            else lifecycle.get_task(task_ref)
+        )
+        if task is None:
+            return (
+                jsonify({"success": False, "error": f"Task not found: {task_ref}"}),
+                404,
+            )
+
+        artifact = next(
+            (
+                item
+                for item in task.artifact_refs or []
+                if item.artifact_id == artifact_id
+            ),
+            None,
+        )
+        if artifact is None:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Artifact not found: {artifact_id}",
+                    }
+                ),
+                404,
+            )
+
+        artifact_path = os.path.join(
+            Config.OASIS_SIMULATION_DATA_DIR,
+            simulation_id,
+            artifact.relative_path,
+        )
+        if not os.path.exists(artifact_path):
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Artifact file missing on disk: {artifact.filename}",
+                    }
+                ),
+                404,
+            )
+
+        return send_file(
+            artifact_path,
+            as_attachment=True,
+            download_name=artifact.filename,
+            mimetype=artifact.media_type or None,
+        )
+
+    except (TaskAuthorizationError, TaskLifecycleError) as exc:
+        return _task_error_response(exc)
+
+    except Exception as e:
+        logger.error(f"Failed to download task artifact: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -1550,24 +1958,24 @@ def get_run_status_detail(simulation_id: str):
     try:
         run_state = SimulationRunner.get_run_state(simulation_id)
         platform_filter = request.args.get("platform")
-
-        if not run_state:
-            return jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "simulation_id": simulation_id,
-                        "runner_status": "idle",
-                        "all_actions": [],
-                        "twitter_actions": [],
-                        "reddit_actions": [],
-                    },
-                }
-            )
+        include_tasks = _parse_bool_query(request.args.get("include_tasks"), True)
+        include_task_events = _parse_bool_query(
+            request.args.get("include_task_events"),
+            True,
+        )
+        include_merged_feed = _parse_bool_query(
+            request.args.get("include_merged_feed"),
+            True,
+        )
 
         # Get the complete action list
-        all_actions = SimulationRunner.get_all_actions(
-            simulation_id=simulation_id, platform=platform_filter
+        all_actions = (
+            SimulationRunner.get_all_actions(
+                simulation_id=simulation_id,
+                platform=platform_filter,
+            )
+            if run_state
+            else []
         )
 
         # Get actions by platform
@@ -1575,7 +1983,7 @@ def get_run_status_detail(simulation_id: str):
             SimulationRunner.get_all_actions(
                 simulation_id=simulation_id, platform="twitter"
             )
-            if not platform_filter or platform_filter == "twitter"
+            if run_state and (not platform_filter or platform_filter == "twitter")
             else []
         )
 
@@ -1583,12 +1991,12 @@ def get_run_status_detail(simulation_id: str):
             SimulationRunner.get_all_actions(
                 simulation_id=simulation_id, platform="reddit"
             )
-            if not platform_filter or platform_filter == "reddit"
+            if run_state and (not platform_filter or platform_filter == "reddit")
             else []
         )
 
         # Get actions for the current round (recent_actions only shows the latest round)
-        current_round = run_state.current_round
+        current_round = run_state.current_round if run_state else 0
         recent_actions = (
             SimulationRunner.get_all_actions(
                 simulation_id=simulation_id,
@@ -1600,13 +2008,58 @@ def get_run_status_detail(simulation_id: str):
         )
 
         # Get basic status information
-        result = run_state.to_dict()
+        result = (
+            run_state.to_dict()
+            if run_state
+            else {
+                "simulation_id": simulation_id,
+                "runner_status": "idle",
+                "current_round": 0,
+                "total_rounds": 0,
+                "progress_percent": 0,
+                "twitter_actions_count": 0,
+                "reddit_actions_count": 0,
+                "total_actions_count": 0,
+            }
+        )
         result["all_actions"] = [a.to_dict() for a in all_actions]
         result["twitter_actions"] = [a.to_dict() for a in twitter_actions]
         result["reddit_actions"] = [a.to_dict() for a in reddit_actions]
-        result["rounds_count"] = len(run_state.rounds)
+        result["rounds_count"] = len(run_state.rounds) if run_state else 0
         # recent_actions only shows content from both platforms for the latest round
         result["recent_actions"] = [a.to_dict() for a in recent_actions]
+
+        store = get_simulation_task_store(simulation_id)
+        tasks = store.list_tasks()
+        serialized_tasks = [
+            _serialize_simulation_task(
+                task,
+                simulation_id=simulation_id,
+                current_round=current_round or None,
+            )
+            for task in tasks
+        ]
+        task_events = [
+            _serialize_task_event(simulation_id, task, event)
+            for task in tasks
+            for event in task.events or []
+        ]
+        if platform_filter:
+            task_events = [
+                event
+                for event in task_events
+                if event.get("platform") == platform_filter
+            ]
+
+        if include_tasks:
+            result["tasks"] = serialized_tasks
+        if include_task_events:
+            result["task_events"] = task_events
+        if include_merged_feed:
+            result["merged_feed"] = _build_merged_activity_feed(
+                all_actions,
+                task_events,
+            )
 
         return jsonify({"success": True, "data": result})
 

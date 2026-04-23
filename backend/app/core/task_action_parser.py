@@ -1,9 +1,7 @@
-"""
-Task action XML parser for simulation agents.
+"""Legacy XML task-action parser for simulation agents.
 
-Agents may embed structured ``<task_action>`` XML blocks in their post/comment
-content to create, complete, or update simulation tasks.  This module is a
-standalone, dependency-free parser with no Flask imports.
+The canonical runtime path is MCP task tools. This parser remains as a
+compatibility shim for older prompts that still emit ``<task_action>`` blocks.
 """
 
 import logging
@@ -19,6 +17,7 @@ from .task_lifecycle import (
     TaskLifecycleError,
     TaskLifecycleService,
 )
+from .task_observability import log_task_pipeline_metric
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +26,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 TASK_ACTION_GRAMMAR = """\
-You may coordinate work by embedding structured task actions in your messages using XML tags. These are processed by the simulation engine — they do not appear in the public post.
+Prefer MCP task tools when they are available: `offer_task`, `accept_task`, `decline_task`, `get_task`, `list_my_tasks`, `start_task`, `block_task`, `complete_task`, and `save_task_artifact`.
 
-To create a task and assign it to a colleague:
+XML task actions are a legacy compatibility fallback only. If you must use them, they are processed by the simulation engine and do not appear in the public post.
+
+To offer a task to a colleague:
 <task_action type="create">
   <title>Short task title</title>
   <assign_to>PERSONA_NAME</assign_to>
@@ -43,17 +44,21 @@ To mark one of your assigned tasks as complete:
   <output>Summary of what was accomplished</output>
 </task_action>
 
-To update the status of a task (blocked or in_progress):
+To accept, decline, or update the status of a task:
 <task_action type="update_status">
     <issue_key>ABC-123</issue_key>
-  <status>blocked</status>
-  <reason>Why it is blocked</reason>
+    <status>open|declined|in_progress|blocked</status>
+    <reason>Optional explanation</reason>
 </task_action>
 
 Legacy compatibility: ``<task_id>`` is still accepted, but new task replies should
 prefer the visible ``<issue_key>`` value.
 
 Only include a task_action tag when you genuinely intend to create or update a task. One task_action per message maximum."""
+
+TASK_MCP_PREFERRED_GUIDANCE = """\
+Use MCP task tools for coordination whenever the runtime exposes them. Treat XML `<task_action>` blocks as a fallback path only, not the default workflow.
+""".strip()
 
 # ---------------------------------------------------------------------------
 # Dataclass
@@ -186,6 +191,9 @@ def apply_task_action(
     agent_name: str,
     simulation_id: str,
     store: Any,
+    *,
+    round_index: Optional[int] = None,
+    total_rounds: Optional[int] = None,
 ) -> Optional[str]:
     """Dispatch ``parsed`` through the canonical lifecycle service.
 
@@ -210,23 +218,42 @@ def apply_task_action(
     lifecycle = TaskLifecycleService(simulation_id=simulation_id, store=store)
 
     try:
+        log_task_pipeline_metric(
+            "compat_path_used",
+            simulation_id=simulation_id,
+            source="xml_compat",
+            action_type=parsed.action_type,
+            task_ref=parsed.task_ref,
+            actor=agent_name,
+            status=parsed.status.strip().lower() if parsed.status else None,
+        )
+
         if parsed.action_type == "create":
             if not parsed.title or not parsed.assign_to:
                 logger.debug(
-                    f"apply_task_action: 'create' missing title or assign_to "
+                    f"apply_task_action: legacy XML 'create' missing title or assign_to "
                     f"(simulation={simulation_id}, agent={agent_name})"
                 )
                 return None
-            task = lifecycle.create_task(
+            task = lifecycle.offer_task(
                 title=parsed.title,
                 description=parsed.description or "",
                 assigned_to=parsed.assign_to,
                 assigned_by=agent_name,
                 parent_goal=parsed.parent_goal,
                 actor=agent_name,
+                origin="xml_compat",
+                origin_metadata={"source": "legacy_xml", "action_type": "create"},
+                created_round=round_index,
+                due_round=total_rounds,
+                round_budget=(
+                    max(total_rounds - round_index, 0)
+                    if round_index is not None and total_rounds is not None
+                    else None
+                ),
             )
             logger.info(
-                f"Task created: {task.issue_key!r} '{task.title}' "
+                f"Task offered via legacy XML: {task.issue_key!r} '{task.title}' "
                 f"({agent_name} -> {parsed.assign_to}) simulation={simulation_id}"
             )
             return task.task_id
@@ -242,6 +269,7 @@ def apply_task_action(
                 task_ref=parsed.task_ref,
                 actor=agent_name,
                 output=parsed.output or "",
+                round_index=round_index,
             )
             logger.info(
                 f"Task completed: {result.issue_key!r} by {agent_name} simulation={simulation_id}"
@@ -251,19 +279,21 @@ def apply_task_action(
         elif parsed.action_type == "update_status":
             if not parsed.task_ref or not parsed.status:
                 logger.debug(
-                    f"apply_task_action: 'update_status' missing task reference or status "
+                    f"apply_task_action: legacy XML 'update_status' missing task reference or status "
                     f"(simulation={simulation_id}, agent={agent_name})"
                 )
                 return None
+            normalized_status = parsed.status.strip().lower()
             result = lifecycle.update_task_status(
                 task_ref=parsed.task_ref,
                 actor=agent_name,
-                status=parsed.status,
+                status=normalized_status,
                 reason=parsed.reason,
                 output=parsed.output,
+                round_index=round_index,
             )
             logger.info(
-                f"Task status updated: {result.issue_key!r} -> {parsed.status!r} "
+                f"Task status updated via legacy XML: {result.issue_key!r} -> {normalized_status!r} "
                 f"by {agent_name} simulation={simulation_id}"
             )
             return result.task_id

@@ -50,7 +50,10 @@ class GenerateReportTool:
                     graph_id=state.graph_id,
                     simulation_id=simulation_id,
                     report_id=existing_report.report_id,
-                    metadata={"workflow": "foresight_workbench", "phase": "report_completed"},
+                    metadata={
+                        "workflow": "foresight_workbench",
+                        "phase": "report_completed",
+                    },
                 )
                 return {
                     "simulation_id": simulation_id,
@@ -80,12 +83,15 @@ class GenerateReportTool:
             metadata={"workflow": "foresight_workbench", "phase": "report"},
         )
         if session_id and session.session_id != session_id:
-            session = self.session_manager.attach(
-                session_id,
-                project_id=state.project_id,
-                graph_id=graph_id,
-                simulation_id=simulation_id,
-            ) or session
+            session = (
+                self.session_manager.attach(
+                    session_id,
+                    project_id=state.project_id,
+                    graph_id=graph_id,
+                    simulation_id=simulation_id,
+                )
+                or session
+            )
 
         report_id = f"report_{uuid.uuid4().hex[:12]}"
         task_id = self.task_manager.create_task(
@@ -106,15 +112,18 @@ class GenerateReportTool:
                     progress=0,
                     message="Analyzing transcript and computing graph edge mutations...",
                 )
-                
+
                 # 1. Execute edge mutations based on simulation outcomes
                 try:
                     from ..services.graph_memory_updater import GraphMemoryUpdater
+
                     updater = GraphMemoryUpdater(graph_id=graph_id)
                     mutation_res = updater.analyze_and_mutate_graph()
                     logger.info(f"Graph mutation step completed: {mutation_res}")
                 except Exception as eval_exc:
-                    logger.warning(f"Graph mutation step failed, continuing to report: {eval_exc}")
+                    logger.warning(
+                        f"Graph mutation step failed, continuing to report: {eval_exc}"
+                    )
 
                 self.task_manager.update_task(
                     task_id,
@@ -136,10 +145,23 @@ class GenerateReportTool:
                         message=f"[{stage}] {message}",
                     )
 
-                report = agent.generate_report(progress_callback=progress_callback, report_id=report_id)
+                report = agent.generate_report(
+                    progress_callback=progress_callback, report_id=report_id
+                )
                 self.report_store.save(report)
 
                 if report.status == ReportStatus.COMPLETED:
+                    deliverables_manifest = (
+                        self.report_store.package_simulation_deliverables(
+                            report_id=report.report_id,
+                            simulation_id=simulation_id,
+                            report_section_titles=(
+                                [section.title for section in report.outline.sections]
+                                if report.outline
+                                else None
+                            ),
+                        )
+                    )
                     self.session_manager.attach(
                         session.session_id,
                         project_id=state.project_id,
@@ -155,10 +177,15 @@ class GenerateReportTool:
                             "simulation_id": simulation_id,
                             "status": "completed",
                             "session_id": session.session_id,
+                            "deliverables_count": len(
+                                deliverables_manifest.get("deliverables") or []
+                            ),
                         },
                     )
                 else:
-                    self.task_manager.fail_task(task_id, report.error or "Report generation failed")
+                    self.task_manager.fail_task(
+                        task_id, report.error or "Report generation failed"
+                    )
             except Exception as exc:
                 logger.error(f"Report generation failed: {exc}")
                 self.task_manager.fail_task(task_id, str(exc))

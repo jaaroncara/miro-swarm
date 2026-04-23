@@ -38,12 +38,15 @@ for tool_name, tool_fn in [
     ("calculate_mode", business_tools.calculate_mode),
     ("basic_news_search", business_tools.basic_news_search),
     ("basic_web_search", business_tools.basic_web_search),
-    ("create_task", task_tools.create_task),
+    ("offer_task", task_tools.offer_task),
+    ("accept_task", task_tools.accept_task),
+    ("decline_task", task_tools.decline_task),
     ("get_task", task_tools.get_task),
+    ("list_my_tasks", task_tools.list_my_tasks),
     ("start_task", task_tools.start_task),
     ("block_task", task_tools.block_task),
     ("complete_task", task_tools.complete_task),
-    ("list_my_tasks", task_tools.list_my_tasks),
+    ("save_task_artifact", task_tools.save_task_artifact),
 ]:
     _register_tool(mcp, tool_name, tool_fn)
 

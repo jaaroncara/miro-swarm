@@ -3,7 +3,7 @@
     <div class="tp-header">
       <div class="tp-header-copy">
         <span class="tp-title">Tasks</span>
-        <span class="tp-subtitle">Create, assign, and advance work without leaving the simulation view.</span>
+        <span class="tp-subtitle">Create work, resolve pending offers, and manage deliverables without leaving the simulation view.</span>
       </div>
       <div class="tp-header-actions">
         <span v-if="taskSummary.count || !loading" class="tp-count">{{ taskSummary.count }}</span>
@@ -150,6 +150,7 @@
                 <div class="tp-task-keyline">
                   <span class="tp-task-id">{{ task.issue_key || task.id }}</span>
                   <span v-if="task.parent_goal" class="tp-goal-tag">{{ task.parent_goal }}</span>
+                  <span v-if="task.origin" class="tp-origin-tag">{{ formatOrigin(task.origin) }}</span>
                 </div>
                 <span class="tp-status-pill" :class="'tp-pill-' + task.status">
                   <span class="tp-pill-dot"></span>
@@ -166,9 +167,19 @@
                 <span class="tp-agent">{{ task.assigned_to }}</span>
               </div>
 
+              <div v-if="task.offer_pending" class="tp-offer-banner">
+                Pending offer from {{ task.assigned_by || 'system' }}. Accept or decline it before moving on to other work.
+              </div>
+
               <div class="tp-task-meta">
                 <span class="tp-meta-chip">Updated {{ formatTimestamp(task.updated_at) }}</span>
                 <span class="tp-meta-chip">{{ task.events_count || 0 }} events</span>
+                <span v-if="formatDeadlineSummary(task)" class="tp-meta-chip" :class="deadlineChipClass(task)">
+                  {{ formatDeadlineSummary(task) }}
+                </span>
+                <span v-if="task.artifact_count" class="tp-meta-chip tp-meta-chip-deliverable">
+                  {{ task.artifact_count }} deliverable{{ task.artifact_count === 1 ? '' : 's' }}
+                </span>
               </div>
 
               <div v-if="task.latest_event" class="tp-latest-event">
@@ -181,6 +192,22 @@
               </div>
 
               <div class="tp-task-actions">
+                <button
+                  v-if="canAccept(task)"
+                  class="tp-action-btn tp-action-btn-primary"
+                  :disabled="isTaskMutating(task)"
+                  @click="openActionComposer(task, 'accept')"
+                >
+                  Accept
+                </button>
+                <button
+                  v-if="canDecline(task)"
+                  class="tp-action-btn"
+                  :disabled="isTaskMutating(task)"
+                  @click="openActionComposer(task, 'decline')"
+                >
+                  Decline
+                </button>
                 <button
                   v-if="canStart(task)"
                   class="tp-action-btn"
@@ -205,7 +232,14 @@
                 >
                   Complete
                 </button>
-                <span v-if="actingAs && actingAs !== task.assigned_to" class="tp-action-hint">
+                <button
+                  class="tp-action-btn"
+                  :disabled="artifactPendingTaskId === task.id"
+                  @click="toggleArtifactPanel(task)"
+                >
+                  {{ isArtifactPanelOpen(task) ? 'Hide deliverables' : artifactButtonLabel(task) }}
+                </button>
+                <span v-if="needsAssigneeSwitch(task)" class="tp-action-hint">
                   Switch acting user to {{ task.assigned_to }} to update this task.
                 </span>
               </div>
@@ -227,6 +261,12 @@
 
                 <div class="tp-form-footer tp-form-footer-compact">
                   <span v-if="actionError" class="tp-inline-message tp-inline-error">{{ actionError }}</span>
+                  <span
+                    v-else-if="actionDraft.mode === 'complete' && !requiresCompletionSummary(task)"
+                    class="tp-inline-message"
+                  >
+                    Optional because this task already has a staged deliverable.
+                  </span>
                   <button
                     class="tp-primary-btn"
                     :disabled="actionPendingTaskId === task.id"
@@ -234,6 +274,67 @@
                   >
                     {{ actionPendingTaskId === task.id ? actionButtonBusyLabel : actionButtonLabel }}
                   </button>
+                </div>
+              </div>
+
+              <div v-if="isArtifactPanelOpen(task)" class="tp-artifacts-panel">
+                <div class="tp-action-header">
+                  <span class="tp-action-title">Deliverables</span>
+                  <button class="tp-close-btn" @click="closeArtifactPanel">Done</button>
+                </div>
+
+                <div v-if="task.artifact_summaries?.length" class="tp-artifact-list">
+                  <a
+                    v-for="artifact in task.artifact_summaries"
+                    :key="artifact.artifact_id"
+                    class="tp-artifact-item"
+                    :href="getArtifactDownloadHref(task, artifact)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <span class="tp-artifact-name">{{ artifact.filename }}</span>
+                    <span class="tp-artifact-meta">{{ formatArtifactSummary(artifact) }}</span>
+                  </a>
+                </div>
+                <div v-else class="tp-artifact-empty">
+                  No deliverables uploaded yet.
+                </div>
+
+                <div v-if="canUploadDeliverable(task)" class="tp-artifact-upload">
+                  <label class="tp-label" :for="`task-artifact-${task.id}`">Upload a deliverable</label>
+                  <input
+                    :id="`task-artifact-${task.id}`"
+                    :key="artifactInputKey"
+                    class="tp-file-input"
+                    type="file"
+                    accept=".md,.markdown,.txt,.pdf"
+                    @change="handleArtifactFileSelected(task, $event)"
+                  >
+
+                  <div v-if="artifactDraft.fileName" class="tp-file-chip">
+                    Selected {{ artifactDraft.fileName }}
+                  </div>
+
+                  <label class="tp-label" :for="`task-artifact-note-${task.id}`">Optional note</label>
+                  <textarea
+                    :id="`task-artifact-note-${task.id}`"
+                    v-model="artifactDraft.note"
+                    class="tp-textarea"
+                    rows="2"
+                    placeholder="Describe what this deliverable contains."
+                  />
+
+                  <div class="tp-form-footer tp-form-footer-compact">
+                    <span v-if="artifactError" class="tp-inline-message tp-inline-error">{{ artifactError }}</span>
+                    <span v-else class="tp-inline-message">Allowed formats: .md, .txt, .pdf</span>
+                    <button
+                      class="tp-primary-btn"
+                      :disabled="artifactPendingTaskId === task.id"
+                      @click="submitArtifact(task)"
+                    >
+                      {{ artifactPendingTaskId === task.id ? 'Uploading...' : 'Upload deliverable' }}
+                    </button>
+                  </div>
                 </div>
               </div>
             </article>
@@ -247,11 +348,15 @@
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue'
 import {
+  acceptSimulationTask,
   blockSimulationTask,
   completeSimulationTask,
   createSimulationTask,
+  declineSimulationTask,
   getSimulationProfilesRealtime,
+  getSimulationTaskArtifactDownloadUrl,
   getSimulationTasks,
+  saveSimulationTaskArtifact,
   startSimulationTask
 } from '../api/simulation'
 
@@ -266,7 +371,8 @@ const props = defineProps({
   }
 })
 
-const statusOrder = ['open', 'in_progress', 'blocked', 'done']
+const statusOrder = ['offered', 'open', 'in_progress', 'blocked', 'done', 'declined', 'expired']
+const artifactAcceptExtensions = ['md', 'markdown', 'txt', 'pdf']
 
 const tasks = ref([])
 const taskSummary = ref({ count: 0, filters: {}, status_counts: {} })
@@ -282,6 +388,10 @@ const actingAs = ref('')
 const collapsedGroups = ref({})
 const actionDraft = ref({ taskId: '', mode: '', message: '' })
 const actionPendingTaskId = ref('')
+const artifactDraft = ref({ taskId: '', note: '', file: null, fileName: '' })
+const artifactPendingTaskId = ref('')
+const artifactError = ref('')
+const artifactInputKey = ref(0)
 const filters = ref({
   status: '',
   assignedTo: ''
@@ -297,12 +407,28 @@ let pollTimer = null
 
 const statusLabel = (status) => {
   const labels = {
+    offered: 'Offered',
     open: 'Open',
     in_progress: 'In Progress',
     blocked: 'Blocked',
-    done: 'Done'
+    done: 'Done',
+    declined: 'Declined',
+    expired: 'Expired'
   }
   return labels[status] || status
+}
+
+const formatOrigin = (origin) => {
+  const labels = {
+    manual: 'Manual',
+    api: 'API',
+    offer: 'Offer',
+    mcp_offer: 'MCP Offer',
+    mention_compat: 'Mention Offer',
+    xml_compat: 'XML Offer',
+    legacy: 'Legacy'
+  }
+  return labels[origin] || origin
 }
 
 const uniqueNames = (values) => {
@@ -378,6 +504,12 @@ const activeTask = computed(() => {
 })
 
 const actionTitle = computed(() => {
+  if (actionDraft.value.mode === 'accept') {
+    return 'Accept task offer'
+  }
+  if (actionDraft.value.mode === 'decline') {
+    return 'Decline task offer'
+  }
   if (actionDraft.value.mode === 'start') {
     return 'Start task'
   }
@@ -391,6 +523,12 @@ const actionTitle = computed(() => {
 })
 
 const actionPrompt = computed(() => {
+  if (actionDraft.value.mode === 'accept') {
+    return 'Optional acceptance note'
+  }
+  if (actionDraft.value.mode === 'decline') {
+    return 'Decline reason'
+  }
   if (actionDraft.value.mode === 'start') {
     return 'Optional note'
   }
@@ -404,6 +542,12 @@ const actionPrompt = computed(() => {
 })
 
 const actionPlaceholder = computed(() => {
+  if (actionDraft.value.mode === 'accept') {
+    return 'Optional plan for how you will handle this work.'
+  }
+  if (actionDraft.value.mode === 'decline') {
+    return 'Explain why you cannot take this on.'
+  }
   if (actionDraft.value.mode === 'start') {
     return 'Optional context for the assignee starting the work.'
   }
@@ -417,6 +561,12 @@ const actionPlaceholder = computed(() => {
 })
 
 const actionButtonLabel = computed(() => {
+  if (actionDraft.value.mode === 'accept') {
+    return 'Accept offer'
+  }
+  if (actionDraft.value.mode === 'decline') {
+    return 'Decline offer'
+  }
   if (actionDraft.value.mode === 'start') {
     return 'Confirm start'
   }
@@ -430,6 +580,12 @@ const actionButtonLabel = computed(() => {
 })
 
 const actionButtonBusyLabel = computed(() => {
+  if (actionDraft.value.mode === 'accept') {
+    return 'Accepting...'
+  }
+  if (actionDraft.value.mode === 'decline') {
+    return 'Declining...'
+  }
   if (actionDraft.value.mode === 'start') {
     return 'Starting...'
   }
@@ -473,6 +629,78 @@ const formatLatestEvent = (event) => {
   const eventType = event.event_type || 'updated'
   const note = event.details?.note || event.details?.output || ''
   return note ? `${actor} ${eventType}: ${note}` : `${actor} ${eventType}`
+}
+
+const formatDeadlineSummary = (task) => {
+  const deadline = task?.deadline || {}
+  if (deadline.remaining_rounds === 0 && deadline.due_round != null && !task.is_terminal) {
+    return `Due now · R${deadline.due_round}`
+  }
+  if (deadline.remaining_rounds != null && deadline.due_round != null) {
+    const suffix = deadline.remaining_rounds === 1 ? '' : 's'
+    return `${deadline.remaining_rounds} round${suffix} left · R${deadline.due_round}`
+  }
+  if (deadline.due_round != null) {
+    return `Due round ${deadline.due_round}`
+  }
+  if (deadline.deadline_at) {
+    return `Due ${formatTimestamp(deadline.deadline_at)}`
+  }
+  return ''
+}
+
+const deadlineChipClass = (task) => {
+  const deadline = task?.deadline || {}
+  if (task.status === 'expired') {
+    return 'tp-meta-chip-expired'
+  }
+  if (deadline.remaining_rounds === 0 && !task.is_terminal) {
+    return 'tp-meta-chip-urgent'
+  }
+  return 'tp-meta-chip-deadline'
+}
+
+const requiresCompletionSummary = (task) => {
+  return !((task?.artifact_count || 0) > 0)
+}
+
+const taskRef = (task) => {
+  return task.issue_key || task.id
+}
+
+const artifactButtonLabel = (task) => {
+  const count = task?.artifact_count || 0
+  return count > 0 ? `Deliverables (${count})` : 'Deliverables'
+}
+
+const formatBytes = (value) => {
+  const numeric = Number(value || 0)
+  if (!numeric) {
+    return ''
+  }
+  if (numeric < 1024) {
+    return `${numeric} B`
+  }
+  if (numeric < 1024 * 1024) {
+    return `${(numeric / 1024).toFixed(1)} KB`
+  }
+  return `${(numeric / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const formatArtifactSummary = (artifact) => {
+  const parts = []
+  if (artifact.media_type) {
+    parts.push(artifact.media_type)
+  }
+  const sizeLabel = formatBytes(artifact.size_bytes)
+  if (sizeLabel) {
+    parts.push(sizeLabel)
+  }
+  return parts.join(' · ') || 'Download'
+}
+
+const getArtifactDownloadHref = (task, artifact) => {
+  return artifact.download_url || getSimulationTaskArtifactDownloadUrl(props.simulationId, taskRef(task), artifact.artifact_id)
 }
 
 const resetFeedback = () => {
@@ -600,20 +828,49 @@ const canStart = (task) => {
   return task.status === 'open' || task.status === 'blocked'
 }
 
+const canAccept = (task) => {
+  return task.status === 'offered'
+}
+
+const canDecline = (task) => {
+  return task.status === 'offered'
+}
+
 const canBlock = (task) => {
   return task.status === 'open' || task.status === 'in_progress'
 }
 
 const canComplete = (task) => {
-  return task.status !== 'done'
+  return ['open', 'in_progress', 'blocked'].includes(task.status)
+}
+
+const canUploadDeliverable = (task) => {
+  return !['declined', 'expired'].includes(task.status)
 }
 
 const isActionOpen = (task) => {
   return actionDraft.value.taskId === task.id
 }
 
+const isArtifactPanelOpen = (task) => {
+  return artifactDraft.value.taskId === task.id
+}
+
 const isTaskMutating = (task) => {
   return actionPendingTaskId.value === task.id
+}
+
+const needsAssigneeSwitch = (task) => {
+  const actor = String(actingAs.value || '').trim()
+  if (!actor) {
+    return false
+  }
+  const assignee = String(task.assigned_to || '').trim()
+  if (!assignee) {
+    return false
+  }
+  const requiresAssigneeAction = canAccept(task) || canDecline(task) || canStart(task) || canBlock(task) || canComplete(task)
+  return requiresAssigneeAction && actor !== assignee
 }
 
 const openActionComposer = (task, mode) => {
@@ -633,12 +890,137 @@ const closeActionComposer = () => {
   actionDraft.value = { taskId: '', mode: '', message: '' }
 }
 
+const closeArtifactPanel = () => {
+  artifactError.value = ''
+  artifactDraft.value = { taskId: '', note: '', file: null, fileName: '' }
+  artifactInputKey.value += 1
+}
+
+const toggleArtifactPanel = (task) => {
+  artifactError.value = ''
+  if (isArtifactPanelOpen(task)) {
+    closeArtifactPanel()
+    return
+  }
+  artifactDraft.value = {
+    taskId: task.id,
+    note: '',
+    file: null,
+    fileName: ''
+  }
+  artifactInputKey.value += 1
+}
+
 const resolveActionActor = (task) => {
   const actor = String(actingAs.value || '').trim()
   if (actor) {
     return actor
   }
   return String(task.assigned_to || '').trim()
+}
+
+const inferMediaType = (filename) => {
+  const normalized = String(filename || '').trim().toLowerCase()
+  if (normalized.endsWith('.pdf')) {
+    return 'application/pdf'
+  }
+  if (normalized.endsWith('.md') || normalized.endsWith('.markdown')) {
+    return 'text/markdown'
+  }
+  return 'text/plain'
+}
+
+const isAllowedArtifactFile = (file) => {
+  const fileName = String(file?.name || '').toLowerCase()
+  const extension = fileName.includes('.') ? fileName.split('.').pop() : ''
+  return artifactAcceptExtensions.includes(extension)
+}
+
+const readFileAsBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const bytes = new Uint8Array(reader.result)
+      let binary = ''
+      bytes.forEach((value) => {
+        binary += String.fromCharCode(value)
+      })
+      resolve(window.btoa(binary))
+    }
+    reader.onerror = () => {
+      reject(new Error('Failed to read the selected file.'))
+    }
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+const handleArtifactFileSelected = (task, event) => {
+  artifactError.value = ''
+  const file = event?.target?.files?.[0]
+  if (!file) {
+    artifactDraft.value = { ...artifactDraft.value, taskId: task.id, file: null, fileName: '' }
+    return
+  }
+  if (!isAllowedArtifactFile(file)) {
+    artifactError.value = 'Unsupported file type. Use .md, .txt, or .pdf.'
+    artifactDraft.value = { ...artifactDraft.value, taskId: task.id, file: null, fileName: '' }
+    artifactInputKey.value += 1
+    return
+  }
+  artifactDraft.value = {
+    ...artifactDraft.value,
+    taskId: task.id,
+    file,
+    fileName: file.name
+  }
+}
+
+const submitArtifact = async (task) => {
+  artifactError.value = ''
+  resetFeedback()
+
+  const actor = resolveActionActor(task)
+  const file = artifactDraft.value.file
+
+  if (!actor) {
+    artifactError.value = 'Choose an acting user before uploading a deliverable.'
+    return
+  }
+  if (!file) {
+    artifactError.value = 'Choose a deliverable file first.'
+    return
+  }
+  if (!isAllowedArtifactFile(file)) {
+    artifactError.value = 'Unsupported file type. Use .md, .txt, or .pdf.'
+    return
+  }
+
+  artifactPendingTaskId.value = task.id
+  try {
+    const content = await readFileAsBase64(file)
+    await saveSimulationTaskArtifact(props.simulationId, taskRef(task), {
+      actor,
+      filename: file.name,
+      content,
+      encoding: 'base64',
+      media_type: file.type || inferMediaType(file.name),
+      kind: 'deliverable',
+      note: String(artifactDraft.value.note || '').trim() || undefined
+    })
+    artifactDraft.value = {
+      taskId: task.id,
+      note: '',
+      file: null,
+      fileName: ''
+    }
+    artifactInputKey.value += 1
+    setFeedback(`Deliverable uploaded for ${taskRef(task)}.`)
+    await loadTasks()
+  } catch (err) {
+    artifactError.value = err.message || 'Failed to upload deliverable'
+  } finally {
+    artifactPendingTaskId.value = ''
+  }
 }
 
 const submitTaskAction = async (task) => {
@@ -652,39 +1034,59 @@ const submitTaskAction = async (task) => {
     actionError.value = 'Choose an acting user before updating a task.'
     return
   }
+  if (actionDraft.value.mode === 'decline' && !message) {
+    actionError.value = 'Declined offers require a reason.'
+    return
+  }
   if (actionDraft.value.mode === 'block' && !message) {
     actionError.value = 'Blocked tasks require a reason.'
     return
   }
-  if (actionDraft.value.mode === 'complete' && !message) {
-    actionError.value = 'Completed tasks require an output summary.'
+  if (actionDraft.value.mode === 'complete' && !message && requiresCompletionSummary(task)) {
+    actionError.value = 'Completed tasks require an output summary or a staged deliverable.'
     return
   }
 
   actionPendingTaskId.value = task.id
   try {
-    if (actionDraft.value.mode === 'start') {
-      await startSimulationTask(props.simulationId, task.id, {
+    if (actionDraft.value.mode === 'accept') {
+      await acceptSimulationTask(props.simulationId, taskRef(task), {
         actor,
         reason: message
       })
-      setFeedback(`Task ${task.issue_key || task.id} started.`)
+      setFeedback(`Task ${taskRef(task)} accepted.`)
+    }
+
+    if (actionDraft.value.mode === 'decline') {
+      await declineSimulationTask(props.simulationId, taskRef(task), {
+        actor,
+        reason: message
+      })
+      setFeedback(`Task ${taskRef(task)} declined.`)
+    }
+
+    if (actionDraft.value.mode === 'start') {
+      await startSimulationTask(props.simulationId, taskRef(task), {
+        actor,
+        reason: message
+      })
+      setFeedback(`Task ${taskRef(task)} started.`)
     }
 
     if (actionDraft.value.mode === 'block') {
-      await blockSimulationTask(props.simulationId, task.id, {
+      await blockSimulationTask(props.simulationId, taskRef(task), {
         actor,
         reason: message
       })
-      setFeedback(`Task ${task.issue_key || task.id} blocked.`)
+      setFeedback(`Task ${taskRef(task)} blocked.`)
     }
 
     if (actionDraft.value.mode === 'complete') {
-      await completeSimulationTask(props.simulationId, task.id, {
+      await completeSimulationTask(props.simulationId, taskRef(task), {
         actor,
         output: message
       })
-      setFeedback(`Task ${task.issue_key || task.id} completed.`)
+      setFeedback(`Task ${taskRef(task)} completed.`)
     }
 
     closeActionComposer()
@@ -1088,6 +1490,10 @@ onUnmounted(() => {
   background: var(--info-color, #2196F3);
 }
 
+.tp-dot-offered {
+  background: var(--accent-color, #1A936F);
+}
+
 .tp-dot-in_progress {
   background: var(--warning-color, #FF9800);
 }
@@ -1098,6 +1504,14 @@ onUnmounted(() => {
 
 .tp-dot-done {
   background: var(--success-color, #4CAF50);
+}
+
+.tp-dot-declined {
+  background: var(--text-muted);
+}
+
+.tp-dot-expired {
+  background: #8B5CF6;
 }
 
 .tp-group-label {
@@ -1175,6 +1589,14 @@ onUnmounted(() => {
   height: 5px;
 }
 
+.tp-pill-offered {
+  color: var(--accent-color, #1A936F);
+}
+
+.tp-pill-offered .tp-pill-dot {
+  background: var(--accent-color, #1A936F);
+}
+
 .tp-pill-open {
   color: var(--info-color, #2196F3);
 }
@@ -1205,6 +1627,22 @@ onUnmounted(() => {
 
 .tp-pill-done .tp-pill-dot {
   background: var(--success-color, #4CAF50);
+}
+
+.tp-pill-declined {
+  color: var(--text-muted);
+}
+
+.tp-pill-declined .tp-pill-dot {
+  background: var(--text-muted);
+}
+
+.tp-pill-expired {
+  color: #8B5CF6;
+}
+
+.tp-pill-expired .tp-pill-dot {
+  background: #8B5CF6;
 }
 
 .tp-task-title {
@@ -1240,6 +1678,7 @@ onUnmounted(() => {
 }
 
 .tp-goal-tag,
+.tp-origin-tag,
 .tp-meta-chip {
   display: inline-flex;
   align-items: center;
@@ -1250,6 +1689,37 @@ onUnmounted(() => {
   border: 1px solid var(--border-color);
   border-radius: 999px;
   padding: 4px 8px;
+}
+
+.tp-origin-tag {
+  color: var(--text-primary);
+}
+
+.tp-offer-banner {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: rgba(74, 144, 226, 0.1);
+  border: 1px solid rgba(74, 144, 226, 0.22);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.tp-meta-chip-deadline {
+  color: var(--warning-color, #FF9800);
+}
+
+.tp-meta-chip-urgent {
+  color: var(--error-color, #F44336);
+  border-color: rgba(244, 67, 54, 0.24);
+}
+
+.tp-meta-chip-expired {
+  color: var(--text-muted);
+}
+
+.tp-meta-chip-deliverable {
+  color: var(--accent-color);
 }
 
 .tp-task-meta {
@@ -1303,6 +1773,79 @@ onUnmounted(() => {
   background: rgba(18, 18, 18, 0.4);
   border: 1px solid var(--border-color);
   border-radius: 8px;
+}
+
+.tp-artifacts-panel {
+  margin-top: 2px;
+  padding: 12px;
+  background: rgba(18, 18, 18, 0.28);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tp-artifact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tp-artifact-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.tp-artifact-item:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-tertiary);
+}
+
+.tp-artifact-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tp-artifact-meta,
+.tp-artifact-empty,
+.tp-file-chip {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.tp-artifact-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tp-file-input {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+.tp-file-chip {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
 }
 
 .tp-action-title {

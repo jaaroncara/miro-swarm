@@ -120,9 +120,9 @@
     <!-- Main Content: Dual Timeline -->
     <div v-if="activeTab === 'feed'" class="main-content-area" ref="scrollContainer">
       <!-- Timeline Header -->
-      <div class="timeline-header" v-if="allActions.length > 0">
+      <div class="timeline-header" v-if="chronologicalActions.length > 0">
         <div class="timeline-stats">
-          <span class="total-count">TOTAL EVENTS: <span class="mono">{{ allActions.length }}</span></span>
+          <span class="total-count">TOTAL EVENTS: <span class="mono">{{ chronologicalActions.length }}</span></span>
           <span class="platform-breakdown">
             <span class="breakdown-item twitter">
               <svg class="mini-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
@@ -132,6 +132,11 @@
             <span class="breakdown-item reddit">
               <svg class="mini-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
               <span class="mono">{{ redditActionsCount }}</span>
+            </span>
+            <span class="breakdown-divider">/</span>
+            <span class="breakdown-item task-events">
+              <svg class="mini-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+              <span class="mono">{{ taskEventsCount }}</span>
             </span>
           </span>
         </div>
@@ -144,9 +149,9 @@
         <TransitionGroup name="timeline-item">
           <div 
             v-for="action in chronologicalActions" 
-            :key="action._uniqueId || action.id || `${action.timestamp}-${action.agent_id}`" 
+            :key="action._uniqueId || action.id || `${action.timestamp}-${action.agent_id || action.event_id}`" 
             class="timeline-item"
-            :class="action.platform"
+            :class="[action.platform || 'task', { 'task-event': isTaskEvent(action), 'mention-linked': hasMentionContext(action) }]"
           >
             <div class="timeline-marker">
               <div class="marker-dot"></div>
@@ -155,39 +160,76 @@
             <div class="timeline-card">
               <div class="card-header">
                 <div class="agent-info">
-                  <div class="avatar-placeholder">{{ (action.agent_name || 'A')[0] }}</div>
-                  <span class="agent-name">{{ action.agent_name }}</span>
+                  <div class="avatar-placeholder">{{ getEntryAvatar(action) }}</div>
+                  <div class="agent-meta">
+                    <span class="agent-name">{{ getEntryActorName(action) }}</span>
+                    <span v-if="isTaskEvent(action)" class="agent-role">{{ getTaskRoutingLabel(action) }}</span>
+                  </div>
                 </div>
                 
                 <div class="header-meta">
                   <div class="platform-indicator">
                     <svg v-if="action.platform === 'twitter'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-                    <svg v-else viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                    <svg v-else-if="action.platform === 'reddit'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                    <svg v-else viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
                   </div>
-                  <div class="action-badge" :class="getActionTypeClass(action.action_type)">
-                    {{ getActionTypeLabel(action.action_type) }}
+                  <div class="action-badge" :class="isTaskEvent(action) ? getTaskEventClass(action.event_type) : getActionTypeClass(action.action_type)">
+                    {{ isTaskEvent(action) ? getTaskEventLabel(action.event_type) : getActionTypeLabel(action.action_type) }}
                   </div>
                 </div>
               </div>
               
               <div class="card-body">
+                <template v-if="isTaskEvent(action)">
+                  <div class="task-title-row">
+                    <span class="task-title">{{ action.task_title }}</span>
+                    <span class="task-status-pill" :class="`status-${normalizeTaskStatus(action.task_status)}`">
+                      {{ formatTaskStatus(action.task_status) }}
+                    </span>
+                  </div>
+
+                  <div v-if="getTaskEventSummary(action)" class="task-event-summary">
+                    {{ getTaskEventSummary(action) }}
+                  </div>
+
+                  <div v-if="getTaskMentionSnippet(action)" class="mention-context">
+                    <span class="mention-context-label">Mention context</span>
+                    <span class="mention-context-text" v-html="formatHighlightedMentions(getTaskMentionSnippet(action))"></span>
+                  </div>
+
+                  <div v-if="getTaskEventDetailChips(action).length" class="task-detail-chips">
+                    <span v-for="detail in getTaskEventDetailChips(action)" :key="detail" class="task-detail-chip">
+                      {{ detail }}
+                    </span>
+                  </div>
+
+                  <div v-if="action.artifact_summaries?.length" class="task-artifact-list">
+                    <span class="task-artifact-label">Artifacts</span>
+                    <span
+                      v-for="artifact in action.artifact_summaries"
+                      :key="artifact.artifact_id"
+                      class="task-artifact-chip"
+                    >
+                      {{ artifact.filename || artifact.kind || artifact.artifact_id }}
+                    </span>
+                  </div>
+                </template>
+
+                <template v-else>
                 <!-- CREATE_POST: Create Post -->
-                <div v-if="action.action_type === 'CREATE_POST' && action.action_args?.content" class="content-text main-text">
-                  {{ action.action_args.content }}
+                <div v-if="action.action_type === 'CREATE_POST' && action.action_args?.content" class="content-text main-text" v-html="formatHighlightedMentions(action.action_args.content)">
                 </div>
 
                 <!-- QUOTE_POST: Quote Post -->
                 <template v-if="action.action_type === 'QUOTE_POST'">
-                  <div v-if="action.action_args?.quote_content" class="content-text">
-                    {{ action.action_args.quote_content }}
+                  <div v-if="action.action_args?.quote_content" class="content-text" v-html="formatHighlightedMentions(action.action_args.quote_content)">
                   </div>
                   <div v-if="action.action_args?.original_content" class="quoted-block">
                     <div class="quote-header">
                       <svg class="icon-small" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
                       <span class="quote-label">@{{ action.action_args.original_author_name || 'User' }}</span>
                     </div>
-                    <div class="quote-text">
-                      {{ truncateContent(action.action_args.original_content, 150) }}
+                    <div class="quote-text" v-html="formatHighlightedMentions(truncateContent(action.action_args.original_content, 150))">
                     </div>
                   </div>
                 </template>
@@ -216,8 +258,7 @@
 
                 <!-- CREATE_COMMENT: Create Comment -->
                 <template v-if="action.action_type === 'CREATE_COMMENT'">
-                  <div v-if="action.action_args?.content" class="content-text">
-                    {{ action.action_args.content }}
+                  <div v-if="action.action_args?.content" class="content-text" v-html="formatHighlightedMentions(action.action_args.content)">
                   </div>
                   <div v-if="action.action_args?.post_id" class="comment-context">
                     <svg class="icon-small" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
@@ -263,20 +304,27 @@
                 </template>
 
                 <!-- Generic fallback: unknown type or has content not handled above -->
-                <div v-if="!['CREATE_POST', 'QUOTE_POST', 'REPOST', 'LIKE_POST', 'CREATE_COMMENT', 'SEARCH_POSTS', 'FOLLOW', 'UPVOTE_POST', 'DOWNVOTE_POST', 'DO_NOTHING'].includes(action.action_type) && action.action_args?.content" class="content-text">
-                  {{ action.action_args.content }}
+                <div v-if="!['CREATE_POST', 'QUOTE_POST', 'REPOST', 'LIKE_POST', 'CREATE_COMMENT', 'SEARCH_POSTS', 'FOLLOW', 'UPVOTE_POST', 'DOWNVOTE_POST', 'DO_NOTHING'].includes(action.action_type) && action.action_args?.content" class="content-text" v-html="formatHighlightedMentions(action.action_args.content)">
                 </div>
+
+                <div v-if="getEntryMentions(action).length" class="mention-strip">
+                  <span class="mention-strip-label">Mentions</span>
+                  <span v-for="mention in getEntryMentions(action)" :key="mention" class="mention-chip">
+                    {{ mention }}
+                  </span>
+                </div>
+                </template>
               </div>
 
               <div class="card-footer">
-                <span class="time-tag">R{{ action.round_num }} • {{ formatActionTime(action.timestamp) }}</span>
-                <!-- Platform tag removed as it is in header now -->
+                <span class="time-tag">R{{ action.round_num || '—' }} • {{ formatActionTime(action.timestamp) }}</span>
+                <span v-if="isTaskEvent(action)" class="issue-tag">{{ action.issue_key }}</span>
               </div>
             </div>
           </div>
         </TransitionGroup>
 
-        <div v-if="allActions.length === 0" class="waiting-state">
+        <div v-if="chronologicalActions.length === 0" class="waiting-state">
           <div class="pulse-ring"></div>
           <span>Waiting for agent actions...</span>
         </div>
@@ -335,8 +383,8 @@ const isStarting = ref(false)
 const isStopping = ref(false)
 const startError = ref(null)
 const runStatus = ref({})
-const allActions = ref([]) // all actions (incremental)
-const actionIds = ref(new Set()) // action ID set for dedup
+const allActions = ref([]) // merged action/task feed
+const taskLookup = ref({})
 const scrollContainer = ref(null)
 
 // Computed
@@ -347,11 +395,15 @@ const chronologicalActions = computed(() => {
 
 // Platform action counts
 const twitterActionsCount = computed(() => {
-  return allActions.value.filter(a => a.platform === 'twitter').length
+  return allActions.value.filter(a => !isTaskEvent(a) && a.platform === 'twitter').length
 })
 
 const redditActionsCount = computed(() => {
-  return allActions.value.filter(a => a.platform === 'reddit').length
+  return allActions.value.filter(a => !isTaskEvent(a) && a.platform === 'reddit').length
+})
+
+const taskEventsCount = computed(() => {
+  return allActions.value.filter(a => a.entry_type === 'task_event').length
 })
 
 // Format simulated elapsed time (calculated from rounds and minutes per round)
@@ -383,7 +435,7 @@ const resetAllState = () => {
   phase.value = 0
   runStatus.value = {}
   allActions.value = []
-  actionIds.value = new Set()
+  taskLookup.value = {}
   prevTwitterRound.value = 0
   prevRedditRound.value = 0
   startError.value = null
@@ -574,30 +626,24 @@ const fetchRunStatusDetail = async () => {
   if (!props.simulationId) return
   
   try {
-    const res = await getRunStatusDetail(props.simulationId)
+    const res = await getRunStatusDetail(props.simulationId, {
+      include_tasks: true,
+      include_task_events: true,
+      include_merged_feed: true
+    })
     
     if (res.success && res.data) {
-      // Use all_actions to get the complete action list
-      const serverActions = res.data.all_actions || []
-      
-      // Incrementally add new actions (deduplicate)
-      let newActionsAdded = 0
-      serverActions.forEach(action => {
-        // Generate unique ID
-        const actionId = action.id || `${action.timestamp}-${action.platform}-${action.agent_id}-${action.action_type}`
-        
-        if (!actionIds.value.has(actionId)) {
-          actionIds.value.add(actionId)
-          allActions.value.push({
-            ...action,
-            _uniqueId: actionId
-          })
-          newActionsAdded++
-        }
+      const nextTaskLookup = {}
+      ;(res.data.tasks || []).forEach(task => {
+        nextTaskLookup[task.issue_key] = task
       })
-      
-      // No auto-scroll, let users freely browse the timeline
-      // New actions are appended at the bottom
+      taskLookup.value = nextTaskLookup
+
+      const serverFeed = res.data.merged_feed || res.data.all_actions || []
+      allActions.value = serverFeed.map(entry => ({
+        ...entry,
+        _uniqueId: buildFeedEntryId(entry)
+      }))
     }
   } catch (err) {
     console.warn('Failed to fetch detailed status:', err)
@@ -605,6 +651,161 @@ const fetchRunStatusDetail = async () => {
 }
 
 // Helpers
+const MENTION_RE = /@[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}/g
+
+const isTaskEvent = (entry) => entry?.entry_type === 'task_event'
+
+const buildFeedEntryId = (entry) => {
+  if (entry?.entry_type === 'task_event') {
+    return entry.event_id || `${entry.issue_key}-${entry.event_type}-${entry.timestamp}`
+  }
+  return entry?.id || `${entry?.timestamp}-${entry?.platform}-${entry?.agent_id}-${entry?.action_type}`
+}
+
+const getTaskForEntry = (entry) => {
+  return taskLookup.value[entry?.issue_key] || null
+}
+
+const getEntryActorName = (entry) => {
+  if (isTaskEvent(entry)) {
+    return entry.actor || entry.assigned_to || entry.assigned_by || 'Task'
+  }
+  return entry.agent_name || 'Agent'
+}
+
+const getEntryAvatar = (entry) => {
+  const label = getEntryActorName(entry)
+  return (label || 'A').charAt(0)
+}
+
+const getTaskRoutingLabel = (entry) => {
+  const from = entry.assigned_by || 'Unknown'
+  const to = entry.assigned_to || 'Unassigned'
+  return `${from} → ${to}`
+}
+
+const normalizeTaskStatus = (status) => {
+  return String(status || 'open').toLowerCase().replace(/[^a-z0-9]+/g, '_')
+}
+
+const formatTaskStatus = (status) => {
+  return String(status || 'open')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase())
+}
+
+const getTaskEventLabel = (eventType) => {
+  const labels = {
+    created: 'Offered',
+    accepted: 'Accepted',
+    declined: 'Declined',
+    started: 'Started',
+    blocked: 'Blocked',
+    completed: 'Completed',
+    expired: 'Expired',
+    artifact_added: 'Artifact',
+    artifact_removed: 'Artifact',
+    updated: 'Updated'
+  }
+  return labels[eventType] || String(eventType || 'task').replace(/_/g, ' ')
+}
+
+const getTaskEventClass = (eventType) => {
+  const classes = {
+    created: 'badge-task-offered',
+    accepted: 'badge-task-active',
+    started: 'badge-task-active',
+    blocked: 'badge-task-blocked',
+    completed: 'badge-task-done',
+    declined: 'badge-task-muted',
+    expired: 'badge-task-muted',
+    artifact_added: 'badge-task-meta',
+    artifact_removed: 'badge-task-meta',
+    updated: 'badge-task-meta'
+  }
+  return classes[eventType] || 'badge-task-meta'
+}
+
+const escapeHtml = (value) => {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+const formatHighlightedMentions = (value) => {
+  const escaped = escapeHtml(value)
+  return escaped.replace(MENTION_RE, match => `<mark class="mention-inline">${match}</mark>`)
+}
+
+const extractMentions = (value) => {
+  const matches = String(value || '').match(MENTION_RE) || []
+  return [...new Set(matches)]
+}
+
+const getEntryMentions = (entry) => {
+  if (isTaskEvent(entry)) {
+    const mentionSnippet = getTaskMentionSnippet(entry)
+    return extractMentions(mentionSnippet)
+  }
+
+  const contentCandidates = [
+    entry?.action_args?.content,
+    entry?.action_args?.quote_content,
+    entry?.action_args?.original_content,
+    entry?.action_args?.post_content
+  ]
+
+  return [...new Set(contentCandidates.flatMap(candidate => extractMentions(candidate)))]
+}
+
+const getTaskMentionSnippet = (entry) => {
+  const task = getTaskForEntry(entry)
+  return task?.mention_context?.snippet || task?.origin_metadata?.public_text || ''
+}
+
+const hasMentionContext = (entry) => {
+  return getEntryMentions(entry).length > 0
+}
+
+const getTaskEventSummary = (entry) => {
+  const details = entry?.details || {}
+  return (
+    details.summary ||
+    details.reason ||
+    details.blocked_reason ||
+    details.output ||
+    details.message ||
+    entry.task_title ||
+    ''
+  )
+}
+
+const getTaskEventDetailChips = (entry) => {
+  const details = entry?.details || {}
+  const chips = []
+
+  if (details.deadline_at) {
+    chips.push(`Deadline ${formatActionTime(details.deadline_at)}`)
+  }
+  if (details.due_round != null) {
+    chips.push(`Due R${details.due_round}`)
+  }
+  if (details.round_budget != null) {
+    chips.push(`${details.round_budget} round budget`)
+  }
+  if (details.artifact_count != null) {
+    chips.push(`${details.artifact_count} artifacts`)
+  }
+  if (details.reason && details.reason !== getTaskEventSummary(entry)) {
+    chips.push(details.reason)
+  }
+
+  return chips
+}
+
 const getActionTypeLabel = (type) => {
   const labels = {
     'CREATE_POST': 'POST',
@@ -1021,6 +1222,10 @@ onUnmounted(() => {
 .timeline-item.reddit .marker-dot { background: var(--bg-tertiary); }
 .timeline-item.twitter .timeline-marker { border-color: var(--text-primary); }
 .timeline-item.reddit .timeline-marker { border-color: var(--text-primary); }
+.timeline-item.task .marker-dot,
+.timeline-item.task-event .marker-dot { background: var(--text-primary); }
+.timeline-item.task .timeline-marker,
+.timeline-item.task-event .timeline-marker { border-color: var(--text-primary); }
 
 /* Card Layout */
 .timeline-card {
@@ -1059,6 +1264,24 @@ onUnmounted(() => {
   margin-left: 32px; /* Gap from axis */
 }
 
+/* Task events remain centered but use the left rail for continuity */
+.timeline-item.task,
+.timeline-item.task-event {
+  justify-content: flex-start;
+  padding-right: 50%;
+}
+
+.timeline-item.task .timeline-card,
+.timeline-item.task-event .timeline-card {
+  margin-left: auto;
+  margin-right: 32px;
+  border-style: dashed;
+}
+
+.timeline-item.mention-linked .timeline-card {
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
+}
+
 /* Card Content Styles */
 .card-header {
   display: flex;
@@ -1073,6 +1296,12 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.agent-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .avatar-placeholder {
@@ -1093,6 +1322,12 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.agent-role {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .header-meta {
@@ -1123,6 +1358,12 @@ onUnmounted(() => {
 .badge-action { background: var(--bg-primary); color: var(--text-secondary); border: 1px solid var(--border-color); }
 .badge-meta { background: var(--bg-secondary); color: var(--text-muted); border: 1px dashed var(--border-color); }
 .badge-idle { opacity: 0.5; }
+.badge-task-offered { background: var(--bg-secondary); color: var(--text-primary); border: 1px dashed var(--text-primary); }
+.badge-task-active { background: var(--border-color); color: var(--text-primary); border-color: var(--border-color); }
+.badge-task-blocked { background: var(--bg-secondary); color: var(--text-secondary); border-color: var(--border-color); }
+.badge-task-done { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--text-primary); }
+.badge-task-muted { background: var(--bg-primary); color: var(--text-muted); border: 1px solid var(--border-color); }
+.badge-task-meta { background: var(--bg-secondary); color: var(--text-secondary); border: 1px dashed var(--border-color); }
 
 .content-text {
   font-size: 13px;
@@ -1134,6 +1375,100 @@ onUnmounted(() => {
 .content-text.main-text {
   font-size: 14px;
   color: var(--text-primary);
+}
+
+:deep(.mention-inline) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+.task-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.task-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.task-status-pill {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.task-status-pill.status-offered,
+.task-status-pill.status-open { border-style: dashed; color: var(--text-primary); }
+.task-status-pill.status-in_progress { color: var(--text-primary); background: var(--bg-secondary); }
+.task-status-pill.status-blocked { color: var(--text-secondary); }
+.task-status-pill.status-done { color: var(--text-primary); background: var(--bg-tertiary); }
+.task-status-pill.status-declined,
+.task-status-pill.status-expired { color: var(--text-muted); }
+
+.task-event-summary {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.mention-context {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  margin-bottom: 10px;
+}
+
+.mention-context-label,
+.mention-strip-label,
+.task-artifact-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.mention-context-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.mention-strip,
+.task-detail-chips,
+.task-artifact-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.mention-chip,
+.task-detail-chip,
+.task-artifact-chip,
+.issue-tag {
+  font-size: 10px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
 }
 
 /* Info Blocks (Quote, Repost, etc) */
@@ -1173,7 +1508,8 @@ onUnmounted(() => {
 .card-footer {
   margin-top: 12px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 10px;
   color: var(--text-secondary);
   font-family: 'JetBrains Mono', monospace;
