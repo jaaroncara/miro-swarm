@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 TASK_ACTION_GRAMMAR = """\
 Prefer MCP task tools when they are available: `offer_task`, `accept_task`, `decline_task`, `get_task`, `list_my_tasks`, `start_task`, `block_task`, `complete_task`, and `save_task_artifact`.
+If the deliverable is better represented as a file, such as a markdown brief, memo, CSV, JSON, code/config file, or PDF, use `save_task_artifact` first and then `complete_task` with a short summary.
 
 XML task actions are a legacy compatibility fallback only. If you must use them, they are processed by the simulation engine and do not appear in the public post.
 
@@ -58,6 +59,7 @@ Only include a task_action tag when you genuinely intend to create or update a t
 
 TASK_MCP_PREFERRED_GUIDANCE = """\
 Use MCP task tools for coordination whenever the runtime exposes them. Treat XML `<task_action>` blocks as a fallback path only, not the default workflow.
+If your deliverable would naturally live in a file, such as a markdown brief, memo, notes file, CSV, JSON payload, code/config snippet, or PDF, call `save_task_artifact` before `complete_task`. Use a descriptive filename, the matching media type, and then complete the task with a short summary that references the saved file.
 """.strip()
 
 # ---------------------------------------------------------------------------

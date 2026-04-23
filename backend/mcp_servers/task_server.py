@@ -220,7 +220,14 @@ async def save_task_artifact(
     kind: str = "deliverable",
     note: str = "",
 ) -> str:
-    """Save a task artifact such as markdown, text, or base64-encoded PDF content."""
+    """Save a file-like deliverable before completing a task.
+
+    Use this for outputs that naturally belong in a file, such as markdown briefs,
+    memos, meeting notes, CSV tables, JSON payloads, code/config snippets, or
+    base64-encoded PDFs. Choose a descriptive filename with an appropriate
+    extension, set the matching media type, and then call `complete_task` with a
+    short summary that references the saved file.
+    """
     try:
         artifact = _get_lifecycle(simulation_id).save_artifact(
             issue_key,

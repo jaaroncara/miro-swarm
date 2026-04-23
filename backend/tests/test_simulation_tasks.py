@@ -19,7 +19,11 @@ import app.services.report_agent as report_agent_service
 from app import create_app
 from app.config import Config
 from app.core.simulation_task_store import get_simulation_task_store
-from app.core.task_action_parser import ParsedTaskAction, apply_task_action
+from app.core.task_action_parser import (
+    ParsedTaskAction,
+    TASK_MCP_PREFERRED_GUIDANCE,
+    apply_task_action,
+)
 from app.core.task_context_injector import build_task_context_message
 from app.core.task_lifecycle import (
     TaskAuthorizationError,
@@ -33,7 +37,11 @@ from app.core.task_round_processor import (
 )
 from app.resources.reports.report_store import ReportStore
 from app.services.report_agent import Report, ReportManager, ReportStatus
-from app.utils.oasis_llm import TASK_MCP_TOOL_ORDER, _ensure_task_tool_access
+from app.utils.oasis_llm import (
+    TASK_COORDINATION_SYSTEM_ADDENDUM,
+    TASK_MCP_TOOL_ORDER,
+    _ensure_task_tool_access,
+)
 
 
 @pytest.fixture
@@ -889,6 +897,35 @@ def test_phase_four_task_context_includes_clock_and_blocked_escalation(
     assert "Due round     : 6" in context_message
     assert "before the run ends" in context_message
     assert "A plain reply is enough here" in context_message
+
+
+def test_task_guidance_encourages_saving_file_like_artifacts(simulation_root: Path):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    lifecycle.create_task(
+        title="Draft the rollout brief",
+        description="Produce a markdown brief and a JSON summary for the launch.",
+        assigned_to="Bob",
+        actor="Alice",
+    )
+
+    context_message = build_task_context_message(
+        "Bob",
+        store,
+        current_round=2,
+        total_rounds=5,
+    )
+
+    assert context_message is not None
+    assert "save_task_artifact" in context_message
+    assert "markdown brief" in context_message
+    assert "media type" in context_message
+    assert "results.json" in context_message
+    assert "save_task_artifact" in TASK_COORDINATION_SYSTEM_ADDENDUM
+    assert "markdown brief" in TASK_COORDINATION_SYSTEM_ADDENDUM
+    assert "save_task_artifact" in TASK_MCP_PREFERRED_GUIDANCE
+    assert "JSON payload" in TASK_MCP_PREFERRED_GUIDANCE
 
 
 def test_phase_four_expire_unfinished_tasks_marks_remaining_work_terminal(

@@ -111,7 +111,8 @@ def build_task_context_message(
             "  1. Directly addresses the person who assigned the task (tag them by name).",
             "  2. Uses MCP task tools first when they are available in this run.",
             "  3. Falls back to a matching <task_action> XML block only if MCP task tools are unavailable.",
-            "  4. When you publish a final report or deliverable, store that same content in the task completion output or save it as a task artifact first.",
+            "  4. If the deliverable is file-like, such as a markdown brief, memo, CSV, JSON, code/config, or PDF, save it with `save_task_artifact` first using a clear filename and media type.",
+            "  5. When you publish a final report or deliverable, store that same content in the task completion output, or summarize the saved artifact when you complete the task.",
             "Do NOT post about any other topic until you have responded to every task listed here.",
             "",
         ]
@@ -179,7 +180,7 @@ def build_task_context_message(
             lines.append(
                 f"  ACTION REQUIRED: Reply to {assigner} acknowledging this task and "
                 f"either start working on it or complete it immediately if you can. "
-                f"Prefer MCP `start_task` or `complete_task`. If you publish the finished report now, pass that same report text into `complete_task`."
+                f"Prefer MCP `start_task` or `complete_task`. If the finished deliverable is file-like, save it with `save_task_artifact` before `complete_task`, using a descriptive filename such as `brief.md` or `results.json`."
             )
             lines.append(
                 f"  XML fallback if MCP task tools are unavailable:\n"
@@ -197,7 +198,7 @@ def build_task_context_message(
         elif task.status == "in_progress":
             lines.append(
                 f"  ACTION REQUIRED: Post an update to {assigner} on the progress of "
-                f"this task, or complete it if the work is done. Prefer MCP `complete_task` when possible, and copy the published report text into the completion output."
+                f"this task, or complete it if the work is done. Prefer MCP `complete_task` when possible. If the deliverable is a file, save it with `save_task_artifact` first and then mention the saved filename in the completion summary."
             )
             lines.append(
                 f"  XML fallback if MCP task tools are unavailable: end your post with a "

@@ -51,7 +51,10 @@ TASK_COORDINATION_SYSTEM_ADDENDUM = f"""
 - When you ask a colleague for a concrete deliverable, call `offer_task` so they can explicitly `accept_task` or `decline_task` before work begins.
 - Before replying about task work, check `list_my_tasks` and `get_task` so you do not miss pending offers or active assignments.
 - After accepting a task, keep it current with `start_task`, `block_task`, `complete_task`, and `save_task_artifact` when you produce a deliverable.
-- When you publish the final report or deliverable for a task, pass that same report text, or a faithful summary of it, into `complete_task.output` so the task record preserves what you published. If the deliverable is too large, save it with `save_task_artifact` first and then complete the task with a concise summary.
+- If the deliverable would naturally live in a file, such as a markdown brief, memo, meeting notes, CSV table, JSON payload, code/config snippet, or PDF, call `save_task_artifact` first with a descriptive filename and matching `media_type`.
+- For text artifacts, prefer `encoding="utf-8"` and filenames such as `brief.md`, `notes.txt`, `results.json`, or `table.csv`. For binary artifacts such as PDFs, send base64 content with `encoding="base64"`.
+- When you publish the final report or deliverable for a task, pass that same report text, or a faithful summary of it, into `complete_task.output` so the task record preserves what you published. If you saved a file artifact first, complete the task with a concise summary that mentions the saved filename and the key outcome.
+- Typical file-output sequence: call `save_task_artifact` with the file content, then call `complete_task` with a short summary such as "Saved rollout-brief.md with the final recommendation set."
 - The active simulation ID and your actor identity are injected automatically for task MCP tools. Do not provide them yourself.
 - XML `<task_action>` blocks are legacy compatibility only. Use them only if task MCP tools are unavailable in the current run.
 
