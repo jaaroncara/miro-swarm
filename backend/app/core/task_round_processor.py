@@ -121,6 +121,7 @@ def process_task_actions_for_round(
             continue
 
         actor_name = str(action_data.get("agent_name") or "unknown")
+        public_text = _normalize_space(strip_task_action(content)) or None
         parsed = parse_task_action(content)
 
         if parsed is not None:
@@ -129,6 +130,7 @@ def process_task_actions_for_round(
                 agent_name=actor_name,
                 simulation_id=simulation_id,
                 store=store,
+                published_text=public_text,
                 round_index=round_index,
                 total_rounds=total_rounds,
             )
@@ -150,7 +152,6 @@ def process_task_actions_for_round(
                 continue
 
             action_args = action_data.get("action_args") or {}
-            public_text = _normalize_space(strip_task_action(content))
             if not public_text:
                 continue
 

@@ -204,15 +204,6 @@ export const getSimulationTasks = (simulationId, params = {}) => {
 }
 
 /**
- * Create a simulation task
- * @param {string} simulationId
- * @param {Object} data - { title, description?, assigned_to, assigned_by?, parent_goal?, actor }
- */
-export const createSimulationTask = (simulationId, data) => {
-  return service.post(`/api/simulation/${simulationId}/tasks`, data)
-}
-
-/**
  * Accept a pending simulation task offer
  * @param {string} simulationId
  * @param {string} taskRef

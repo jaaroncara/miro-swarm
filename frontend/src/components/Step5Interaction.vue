@@ -1020,15 +1020,115 @@ const loadReportData = async () => {
   
   try {
     addLog(`Loading report data: ${props.reportId}`)
+    reportOutline.value = null
+    generatedSections.value = {}
+    collapsedSections.value = new Set()
     
     // Get report info
     const reportRes = await getReport(props.reportId)
     if (reportRes.success && reportRes.data) {
       // Load agent logs to get report outline and sections
       await loadAgentLogs()
+      applyDeliverablesSection(reportRes.data.deliverables_manifest)
     }
   } catch (err) {
     addLog(`Failed to load report: ${err.message}`)
+  }
+}
+
+const buildDeliverablesSectionContent = (manifest) => {
+  const deliverables = manifest?.deliverables || []
+  const summary = manifest?.summary || {}
+
+  const lines = [
+    'Completed simulation-task deliverables packaged with this report.',
+    '',
+    `- Packaged tasks: ${summary.packaged_task_count ?? deliverables.length}`,
+    `- Copied files: ${summary.copied_artifact_count ?? 0}`,
+    `- Missing source files: ${summary.missing_source_count ?? 0}`,
+    `- Failed copies: ${summary.failed_copy_count ?? 0}`
+  ]
+
+  if (manifest?.packaged_at) {
+    lines.push(`- Packaged at: ${manifest.packaged_at}`)
+  }
+
+  deliverables.forEach((deliverable) => {
+    lines.push('')
+    lines.push(`### ${deliverable.issue_key || deliverable.task_id} — ${deliverable.title || 'Untitled deliverable'}`)
+    lines.push(`- Owner: ${deliverable.assigned_to || 'unassigned'}`)
+    lines.push(`- Requested by: ${deliverable.assigned_by || 'system'}`)
+    lines.push(`- Status: ${formatTaskStatus(deliverable.status)}`)
+
+    if (deliverable.mapped_report_section) {
+      lines.push(`- Related report section: ${deliverable.mapped_report_section}`)
+    }
+    if (deliverable.parent_goal) {
+      lines.push(`- Parent goal: ${deliverable.parent_goal}`)
+    }
+    if (deliverable.completed_at) {
+      lines.push(`- Completed at: ${deliverable.completed_at}`)
+    }
+
+    if (deliverable.output) {
+      lines.push('')
+      lines.push('**Completion Output**')
+      lines.push('')
+      lines.push(deliverable.output)
+    }
+
+    const artifacts = deliverable.artifacts || []
+    if (artifacts.length > 0) {
+      lines.push('')
+      lines.push('**Packaged Files**')
+      lines.push('')
+      artifacts.forEach((artifact) => {
+        const artifactPath = artifact.report_relative_path
+          ? `package/${artifact.report_relative_path}`
+          : artifact.source_relative_path
+            ? `source/${artifact.source_relative_path}`
+            : 'path unavailable'
+        const artifactState = artifact.missing_source
+          ? 'Missing source'
+          : artifact.copied
+            ? 'Copied'
+            : 'Pending copy'
+        lines.push(`- ${artifact.filename || artifact.artifact_id} (${artifactState}) — ${artifactPath}`)
+        if (artifact.copy_error) {
+          lines.push(`  - Copy error: ${artifact.copy_error}`)
+        }
+      })
+    }
+  })
+
+  return lines.join('\n')
+}
+
+const applyDeliverablesSection = (manifest) => {
+  const deliverables = manifest?.deliverables || []
+  if (!reportOutline.value?.sections?.length || deliverables.length === 0) {
+    return
+  }
+
+  const filteredSections = reportOutline.value.sections.filter(
+    section => section?.title !== 'Packaged Deliverables'
+  )
+  const appendixIndex = filteredSections.length + 1
+
+  reportOutline.value = {
+    ...reportOutline.value,
+    sections: [
+      ...filteredSections,
+      {
+        title: 'Packaged Deliverables',
+        description: 'Completed task outputs and copied report package artifacts.'
+      }
+    ]
+  }
+
+  generatedSections.value = {
+    ...generatedSections.value,
+    [appendixIndex]: buildDeliverablesSectionContent(manifest)
   }
 }
 

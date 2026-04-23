@@ -32,7 +32,7 @@ logger = get_logger("mirofish.oasis_llm")
 CLI_PROVIDERS = {"claude-cli", "codex-cli"}
 DEFAULT_API_SEMAPHORE = 30
 DEFAULT_CLI_SEMAPHORE = 3
-TASK_MCP_TOOL_NAMES = {
+TASK_MCP_TOOL_ORDER = (
     "offer_task",
     "accept_task",
     "decline_task",
@@ -42,7 +42,8 @@ TASK_MCP_TOOL_NAMES = {
     "block_task",
     "complete_task",
     "save_task_artifact",
-}
+)
+TASK_MCP_TOOL_NAMES = set(TASK_MCP_TOOL_ORDER)
 
 TASK_COORDINATION_SYSTEM_ADDENDUM = f"""
 # TASK COORDINATION
@@ -50,6 +51,7 @@ TASK_COORDINATION_SYSTEM_ADDENDUM = f"""
 - When you ask a colleague for a concrete deliverable, call `offer_task` so they can explicitly `accept_task` or `decline_task` before work begins.
 - Before replying about task work, check `list_my_tasks` and `get_task` so you do not miss pending offers or active assignments.
 - After accepting a task, keep it current with `start_task`, `block_task`, `complete_task`, and `save_task_artifact` when you produce a deliverable.
+- When you publish the final report or deliverable for a task, pass that same report text, or a faithful summary of it, into `complete_task.output` so the task record preserves what you published. If the deliverable is too large, save it with `save_task_artifact` first and then complete the task with a concise summary.
 - The active simulation ID and your actor identity are injected automatically for task MCP tools. Do not provide them yourself.
 - XML `<task_action>` blocks are legacy compatibility only. Use them only if task MCP tools are unavailable in the current run.
 
@@ -537,7 +539,11 @@ class MCPOpenAIModel(OpenAIModel):
         # Per-agent tool routing: select only the best-fit tools
         mgr = _get_mcp_manager_if_enabled()
         if mgr is not None:
-            selected_names = _tool_router.select_tools(messages, mgr.get_tools())
+            available_tools = mgr.get_tools()
+            selected_names = _ensure_task_tool_access(
+                _tool_router.select_tools(messages, available_tools),
+                available_tools,
+            )
             if selected_names is not None:
                 name_set = set(selected_names)
                 mcp_schemas = [
@@ -1012,6 +1018,38 @@ class ToolRouter:
 _tool_router = ToolRouter()
 
 
+def _ensure_task_tool_access(
+    selected_names: List[str] | None,
+    available_tools: list,
+) -> List[str] | None:
+    """Preserve task coordination tools even when role-based routing is active."""
+    if selected_names is None:
+        return None
+
+    available_names: list[str] = []
+    seen_available: set[str] = set()
+    for tool in available_tools:
+        name = getattr(tool, "name", None)
+        if not name or name in seen_available:
+            continue
+        available_names.append(name)
+        seen_available.add(name)
+
+    merged: list[str] = []
+    seen_selected: set[str] = set()
+    required_task_tools = [
+        name for name in TASK_MCP_TOOL_ORDER if name in seen_available
+    ]
+
+    for name in list(selected_names) + required_task_tools:
+        if name not in seen_available or name in seen_selected:
+            continue
+        merged.append(name)
+        seen_selected.add(name)
+
+    return merged
+
+
 def _mcp_tool_loop_sync(
     llm: LLMClient,
     messages: List[Dict[str, Any]],
@@ -1044,7 +1082,10 @@ def _mcp_tool_loop_sync(
 
     # Per-agent tool routing: select only the best-fit tools
     all_mcp_tools = mgr.get_tools()
-    selected_names = _tool_router.select_tools(messages, all_mcp_tools)
+    selected_names = _ensure_task_tool_access(
+        _tool_router.select_tools(messages, all_mcp_tools),
+        all_mcp_tools,
+    )
     if selected_names is not None and not selected_names:
         # Strict filtering: no relevant tools → skip MCP entirely
         return llm.chat(

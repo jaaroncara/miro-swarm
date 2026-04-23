@@ -34,6 +34,9 @@ from .graph_tools import (
 
 logger = get_logger("mirofish.report_agent")
 
+_DELIVERABLES_APPENDIX_START = "<!-- packaged-deliverables:start -->"
+_DELIVERABLES_APPENDIX_END = "<!-- packaged-deliverables:end -->"
+
 
 def _detect_language(text: str) -> str:
     """
@@ -2447,6 +2450,162 @@ class ReportManager:
         return task.updated_at
 
     @classmethod
+    def _strip_deliverables_appendix(cls, markdown_content: str) -> str:
+        """Remove an existing deliverables appendix block from report markdown."""
+        content = markdown_content or ""
+        start_marker = _DELIVERABLES_APPENDIX_START
+        end_marker = _DELIVERABLES_APPENDIX_END
+        start_index = content.find(start_marker)
+        end_index = content.find(end_marker)
+
+        if start_index == -1 or end_index == -1 or end_index < start_index:
+            return content.rstrip()
+
+        end_index += len(end_marker)
+        stripped = (content[:start_index] + content[end_index:]).rstrip()
+        return stripped
+
+    @classmethod
+    def _render_deliverables_appendix(cls, manifest: Dict[str, Any]) -> str:
+        """Render the packaged deliverables manifest as a report appendix."""
+        deliverables = manifest.get("deliverables") or []
+        summary = manifest.get("summary") or {}
+
+        lines = [
+            _DELIVERABLES_APPENDIX_START,
+            "## Packaged Deliverables",
+            "",
+            "This appendix captures completed simulation-task deliverables that were packaged alongside the final report.",
+            "",
+            f"- Packaged tasks: {summary.get('packaged_task_count', len(deliverables))}",
+            f"- Copied files: {summary.get('copied_artifact_count', 0)}",
+            f"- Missing source files: {summary.get('missing_source_count', 0)}",
+            f"- Failed copies: {summary.get('failed_copy_count', 0)}",
+        ]
+
+        packaged_at = manifest.get("packaged_at")
+        if packaged_at:
+            lines.append(f"- Packaged at: {packaged_at}")
+
+        if not deliverables:
+            lines.extend(
+                [
+                    "",
+                    "No completed task deliverables were packaged for this report.",
+                ]
+            )
+        else:
+            for deliverable in deliverables:
+                lines.extend(
+                    [
+                        "",
+                        f"### {deliverable.get('issue_key') or deliverable.get('task_id') or 'Task Deliverable'} — {deliverable.get('title') or 'Untitled'}",
+                        "",
+                        f"- Owner: {deliverable.get('assigned_to') or 'unassigned'}",
+                        f"- Requested by: {deliverable.get('assigned_by') or 'system'}",
+                        f"- Status: {deliverable.get('status') or 'unknown'}",
+                    ]
+                )
+
+                mapped_section = deliverable.get("mapped_report_section")
+                if mapped_section:
+                    lines.append(f"- Related report section: {mapped_section}")
+
+                completed_at = deliverable.get("completed_at")
+                if completed_at:
+                    lines.append(f"- Completed at: {completed_at}")
+
+                parent_goal = deliverable.get("parent_goal")
+                if parent_goal:
+                    lines.append(f"- Parent goal: {parent_goal}")
+
+                output = str(deliverable.get("output") or "").strip()
+                if output:
+                    lines.extend(
+                        [
+                            "",
+                            "**Completion Output**",
+                            "",
+                            output,
+                        ]
+                    )
+
+                artifacts = deliverable.get("artifacts") or []
+                if artifacts:
+                    lines.extend(
+                        [
+                            "",
+                            "**Packaged Files**",
+                            "",
+                        ]
+                    )
+                    for artifact in artifacts:
+                        artifact_name = (
+                            artifact.get("filename")
+                            or artifact.get("artifact_id")
+                            or "artifact"
+                        )
+                        if artifact.get("report_relative_path"):
+                            artifact_location = (
+                                f"package/{artifact['report_relative_path']}"
+                            )
+                        elif artifact.get("source_relative_path"):
+                            artifact_location = (
+                                f"source/{artifact['source_relative_path']}"
+                            )
+                        else:
+                            artifact_location = "path unavailable"
+
+                        state = (
+                            "Copied"
+                            if artifact.get("copied")
+                            else (
+                                "Missing source"
+                                if artifact.get("missing_source")
+                                else "Pending copy"
+                            )
+                        )
+                        lines.append(
+                            f"- {artifact_name} ({state}) — {artifact_location}"
+                        )
+
+                        copy_error = artifact.get("copy_error")
+                        if copy_error:
+                            lines.append(f"  - Copy error: {copy_error}")
+
+        lines.extend(["", _DELIVERABLES_APPENDIX_END])
+        return "\n".join(lines)
+
+    @classmethod
+    def _sync_deliverables_appendix(
+        cls, report_id: str, manifest: Dict[str, Any]
+    ) -> None:
+        """Mirror the packaged deliverables manifest into the saved report markdown."""
+        report = cls.get_report(report_id)
+        full_report_path = cls._get_report_markdown_path(report_id)
+
+        base_markdown = ""
+        if report and report.markdown_content:
+            base_markdown = report.markdown_content
+        elif os.path.exists(full_report_path):
+            with open(full_report_path, "r", encoding="utf-8") as f:
+                base_markdown = f.read()
+        elif not report:
+            return
+
+        stripped_markdown = cls._strip_deliverables_appendix(base_markdown)
+        appendix = cls._render_deliverables_appendix(manifest)
+        updated_markdown = f"{stripped_markdown}\n\n{appendix}\n"
+
+        if report:
+            report.markdown_content = updated_markdown
+            cls.save_report(report)
+            return
+
+        with open(full_report_path, "w", encoding="utf-8") as f:
+            f.write(updated_markdown)
+
+    @classmethod
     def package_task_deliverables(
         cls,
         report_id: str,
@@ -2587,6 +2746,8 @@ class ReportManager:
             missing_source_count=missing_source_count,
             failed_copy_count=failed_copy_count,
         )
+
+        cls._sync_deliverables_appendix(report_id, manifest)
 
         return manifest
 

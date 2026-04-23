@@ -3,7 +3,7 @@
     <div class="tp-header">
       <div class="tp-header-copy">
         <span class="tp-title">Tasks</span>
-        <span class="tp-subtitle">Create work, resolve pending offers, and manage deliverables without leaving the simulation view.</span>
+        <span class="tp-subtitle">Monitor agent-assigned work, resolve pending offers, and manage deliverables during the simulation.</span>
       </div>
       <div class="tp-header-actions">
         <span v-if="taskSummary.count || !loading" class="tp-count">{{ taskSummary.count }}</span>
@@ -49,76 +49,6 @@
       <option v-for="name in availableActors" :key="name" :value="name" />
     </datalist>
 
-    <div class="tp-create-card">
-      <div class="tp-card-header-row">
-        <div>
-          <div class="tp-card-title">Assign a task</div>
-          <div class="tp-card-subtitle">The acting user is used as the assigner and lifecycle actor.</div>
-        </div>
-        <div class="tp-summary-pill">
-          <span class="tp-summary-label">Visible keys</span>
-          <span class="tp-summary-value">{{ taskSummary.count }}</span>
-        </div>
-      </div>
-
-      <form class="tp-create-form" @submit.prevent="handleCreateTask">
-        <div class="tp-form-grid">
-          <div class="tp-field">
-            <label class="tp-label" for="task-title-input">Title</label>
-            <input
-              id="task-title-input"
-              v-model="createForm.title"
-              class="tp-input"
-              maxlength="160"
-              placeholder="Investigate anomaly in supplier communication"
-            >
-          </div>
-
-          <div class="tp-field">
-            <label class="tp-label" for="task-assignee-input">Assign to</label>
-            <input
-              id="task-assignee-input"
-              v-model="createForm.assignedTo"
-              class="tp-input"
-              list="task-agent-options"
-              autocomplete="off"
-              placeholder="Agent username"
-            >
-          </div>
-
-          <div class="tp-field tp-field-span-2">
-            <label class="tp-label" for="task-goal-input">Parent goal</label>
-            <input
-              id="task-goal-input"
-              v-model="createForm.parentGoal"
-              class="tp-input"
-              maxlength="160"
-              placeholder="Optional goal or investigation thread"
-            >
-          </div>
-
-          <div class="tp-field tp-field-span-2">
-            <label class="tp-label" for="task-description-input">Description</label>
-            <textarea
-              id="task-description-input"
-              v-model="createForm.description"
-              class="tp-textarea"
-              rows="3"
-              placeholder="Add context for the assignee."
-            />
-          </div>
-        </div>
-
-        <div class="tp-form-footer">
-          <span v-if="formError" class="tp-inline-message tp-inline-error">{{ formError }}</span>
-          <span v-else-if="feedbackMessage" class="tp-inline-message" :class="feedbackClass">{{ feedbackMessage }}</span>
-          <button class="tp-primary-btn" type="submit" :disabled="createPending">
-            {{ createPending ? 'Assigning...' : 'Assign task' }}
-          </button>
-        </div>
-      </form>
-    </div>
-
     <div v-if="loading && tasks.length === 0" class="tp-state">
       Loading tasks...
     </div>
@@ -129,7 +59,7 @@
     </div>
 
     <div v-else-if="!loading && tasks.length === 0" class="tp-state tp-empty">
-      No tasks yet. Create one manually or wait for the agents to assign work during the run.
+      No tasks yet. Tasks will appear here when agents assign work during the simulation.
     </div>
 
     <div v-else class="tp-groups">
@@ -351,7 +281,6 @@ import {
   acceptSimulationTask,
   blockSimulationTask,
   completeSimulationTask,
-  createSimulationTask,
   declineSimulationTask,
   getSimulationProfilesRealtime,
   getSimulationTaskArtifactDownloadUrl,
@@ -378,9 +307,7 @@ const tasks = ref([])
 const taskSummary = ref({ count: 0, filters: {}, status_counts: {} })
 const loading = ref(false)
 const error = ref(null)
-const formError = ref('')
 const actionError = ref('')
-const createPending = ref(false)
 const feedbackMessage = ref('')
 const feedbackType = ref('success')
 const profileActors = ref([])
@@ -395,12 +322,6 @@ const artifactInputKey = ref(0)
 const filters = ref({
   status: '',
   assignedTo: ''
-})
-const createForm = ref({
-  title: '',
-  assignedTo: '',
-  parentGoal: '',
-  description: ''
 })
 
 let pollTimer = null
@@ -465,8 +386,7 @@ const availableActors = computed(() => {
   return uniqueNames([
     ...profileActors.value,
     ...taskActors,
-    actingAs.value,
-    createForm.value.assignedTo
+    actingAs.value
   ])
 })
 
@@ -774,53 +694,6 @@ const loadAgentOptions = async () => {
 const syncDefaultActor = () => {
   if (!actingAs.value && availableActors.value.length > 0) {
     actingAs.value = availableActors.value[0]
-  }
-}
-
-const handleCreateTask = async () => {
-  formError.value = ''
-  resetFeedback()
-
-  const actor = String(actingAs.value || '').trim()
-  const title = String(createForm.value.title || '').trim()
-  const assignedTo = String(createForm.value.assignedTo || '').trim()
-
-  if (!actor) {
-    formError.value = 'Choose an acting user before creating a task.'
-    return
-  }
-  if (!title) {
-    formError.value = 'Task title is required.'
-    return
-  }
-  if (!assignedTo) {
-    formError.value = 'Assignee is required.'
-    return
-  }
-
-  createPending.value = true
-  try {
-    await createSimulationTask(props.simulationId, {
-      title,
-      description: createForm.value.description,
-      assigned_to: assignedTo,
-      assigned_by: actor,
-      parent_goal: createForm.value.parentGoal,
-      actor
-    })
-
-    createForm.value = {
-      title: '',
-      assignedTo: '',
-      parentGoal: '',
-      description: ''
-    }
-    setFeedback('Task assigned successfully.')
-    await loadTasks()
-  } catch (err) {
-    formError.value = err.message || 'Failed to create task'
-  } finally {
-    createPending.value = false
   }
 }
 
@@ -1280,78 +1153,12 @@ onUnmounted(() => {
   border-color: var(--accent-hover);
 }
 
-.tp-toolbar,
-.tp-create-card {
-  flex-shrink: 0;
-}
-
 .tp-toolbar {
+  flex-shrink: 0;
   display: grid;
   grid-template-columns: minmax(220px, 1.8fr) repeat(2, minmax(160px, 1fr));
   gap: 12px;
   padding: 16px 24px 0;
-}
-
-.tp-create-card {
-  margin: 16px 24px;
-  padding: 16px;
-  background: linear-gradient(180deg, rgba(74, 144, 226, 0.08), rgba(74, 144, 226, 0.02));
-  border: 1px solid rgba(74, 144, 226, 0.25);
-  border-radius: 10px;
-}
-
-.tp-card-header-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.tp-card-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.tp-card-subtitle {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-
-.tp-summary-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: rgba(18, 18, 18, 0.35);
-  border: 1px solid rgba(74, 144, 226, 0.2);
-  border-radius: 999px;
-}
-
-.tp-summary-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-}
-
-.tp-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.tp-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.tp-field-span-2 {
-  grid-column: span 2;
 }
 
 .tp-label {

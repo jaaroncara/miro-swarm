@@ -33,6 +33,7 @@ from app.core.task_round_processor import (
 )
 from app.resources.reports.report_store import ReportStore
 from app.services.report_agent import Report, ReportManager, ReportStatus
+from app.utils.oasis_llm import TASK_MCP_TOOL_ORDER, _ensure_task_tool_access
 
 
 @pytest.fixture
@@ -187,6 +188,57 @@ def test_apply_task_action_uses_lifecycle_and_issue_key(simulation_root: Path):
     assert updated.issue_key == task.issue_key
     assert updated.status == "done"
     assert updated.events[-1].event_type == "completed"
+
+
+def test_apply_task_action_falls_back_to_published_text_for_accept_and_complete(
+    simulation_root: Path,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+    offered = lifecycle.offer_task(
+        title="Publish supplier brief",
+        description="Share the final brief in-thread.",
+        assigned_to="Bob",
+        actor="Alice",
+    )
+
+    accepted_task_id = apply_task_action(
+        ParsedTaskAction(
+            action_type="update_status",
+            issue_key=offered.issue_key,
+            status="open",
+        ),
+        agent_name="Bob",
+        simulation_id="sim_test",
+        store=store,
+        published_text="@Alice Taking this now. I will publish the supplier brief shortly.",
+    )
+
+    accepted = store.get_task(accepted_task_id)
+    assert accepted is not None
+    assert accepted.status == "open"
+    assert accepted.events[-1].details["note"] == (
+        "@Alice Taking this now. I will publish the supplier brief shortly."
+    )
+
+    completed_task_id = apply_task_action(
+        ParsedTaskAction(
+            action_type="complete",
+            issue_key=offered.issue_key,
+        ),
+        agent_name="Bob",
+        simulation_id="sim_test",
+        store=store,
+        published_text="@Alice Published the supplier brief: key risk is concentrated in the northern corridor, with mitigation attached.",
+    )
+
+    completed = store.get_task(completed_task_id)
+    assert completed is not None
+    assert completed.status == "done"
+    assert completed.output == (
+        "@Alice Published the supplier brief: key risk is concentrated in the northern corridor, with mitigation attached."
+    )
+    assert completed.events[-1].details["output"] == completed.output
 
 
 def test_apply_task_action_create_is_translated_into_legacy_offer_flow(
@@ -395,6 +447,21 @@ def test_task_server_exposes_offer_lifecycle_tools(
     )
     assert "Task declined:" in declined_message
     assert "[declined]" in declined_message
+
+
+def test_task_tool_routing_keeps_task_lifecycle_tools_available():
+    tools = [
+        SimpleNamespace(name="lookup_business_data"),
+        SimpleNamespace(name="basic_news_search"),
+        *[SimpleNamespace(name=name) for name in TASK_MCP_TOOL_ORDER],
+    ]
+
+    selected = _ensure_task_tool_access(["lookup_business_data"], tools)
+
+    assert selected is not None
+    assert "lookup_business_data" in selected
+    for tool_name in TASK_MCP_TOOL_ORDER:
+        assert tool_name in selected
 
 
 def test_phase_one_store_reloads_across_stale_instances_and_persists_metadata(
@@ -1382,6 +1449,12 @@ def test_phase_six_report_api_supports_deliverables_and_task_scoped_chat(
         simulation_id="sim_test",
         report_section_titles=["Actionable Recommendations"],
     )
+
+    packaged_report = ReportManager.get_report("report_test")
+    assert packaged_report is not None
+    assert "## Packaged Deliverables" in packaged_report.markdown_content
+    assert task.issue_key in packaged_report.markdown_content
+    assert "deliverables/" in packaged_report.markdown_content
 
     deliverables_response = task_api_client.get("/api/report/report_test/deliverables")
     assert deliverables_response.status_code == 200

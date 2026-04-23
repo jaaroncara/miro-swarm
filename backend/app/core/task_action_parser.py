@@ -41,7 +41,7 @@ To offer a task to a colleague:
 To mark one of your assigned tasks as complete:
 <task_action type="complete">
     <issue_key>ABC-123</issue_key>
-  <output>Summary of what was accomplished</output>
+    <output>Paste the published report text or a faithful completion summary</output>
 </task_action>
 
 To accept, decline, or update the status of a task:
@@ -192,6 +192,7 @@ def apply_task_action(
     simulation_id: str,
     store: Any,
     *,
+    published_text: Optional[str] = None,
     round_index: Optional[int] = None,
     total_rounds: Optional[int] = None,
 ) -> Optional[str]:
@@ -213,9 +214,12 @@ def apply_task_action(
     str or None
         The affected hidden ``task_id`` on success, or ``None`` when the action
         could not be applied (missing required fields, unauthorized actor,
-        invalid transition, task not found, etc.). Never raises.
+        invalid transition, task not found, etc.). When the public message text
+        is provided, it is reused as the fallback task note or completion output
+        so legacy XML updates preserve the published reply. Never raises.
     """
     lifecycle = TaskLifecycleService(simulation_id=simulation_id, store=store)
+    normalized_published_text = (published_text or "").strip() or None
 
     try:
         log_task_pipeline_metric(
@@ -237,7 +241,7 @@ def apply_task_action(
                 return None
             task = lifecycle.offer_task(
                 title=parsed.title,
-                description=parsed.description or "",
+                description=parsed.description or normalized_published_text or "",
                 assigned_to=parsed.assign_to,
                 assigned_by=agent_name,
                 parent_goal=parsed.parent_goal,
@@ -268,7 +272,7 @@ def apply_task_action(
             result = lifecycle.complete_task(
                 task_ref=parsed.task_ref,
                 actor=agent_name,
-                output=parsed.output or "",
+                output=parsed.output or normalized_published_text or "",
                 round_index=round_index,
             )
             logger.info(
@@ -284,12 +288,16 @@ def apply_task_action(
                 )
                 return None
             normalized_status = parsed.status.strip().lower()
+            fallback_reason = parsed.reason or normalized_published_text
+            fallback_output = parsed.output
+            if normalized_status == "done" and not fallback_output:
+                fallback_output = normalized_published_text
             result = lifecycle.update_task_status(
                 task_ref=parsed.task_ref,
                 actor=agent_name,
                 status=normalized_status,
-                reason=parsed.reason,
-                output=parsed.output,
+                reason=fallback_reason,
+                output=fallback_output,
                 round_index=round_index,
             )
             logger.info(
