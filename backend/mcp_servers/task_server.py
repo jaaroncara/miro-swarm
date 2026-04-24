@@ -24,6 +24,50 @@ mcp = FastMCP("task-tools")
 _STATUS_ORDER = list(TASK_STATUS_ORDER)
 
 
+def _serialize_task_tool_payload(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _build_task_tool_error(
+    tool_name: str,
+    *,
+    simulation_id: str,
+    message: str,
+    exc: Exception | None = None,
+    issue_key: str = "",
+    actor: str = "",
+    extra: dict | None = None,
+    error_type: str | None = None,
+) -> str:
+    normalized_error_type = error_type
+    if normalized_error_type is None:
+        if isinstance(exc, TaskAuthorizationError):
+            normalized_error_type = "authorization_error"
+        elif isinstance(exc, TaskLifecycleError):
+            normalized_error_type = "lifecycle_error"
+        else:
+            normalized_error_type = "tool_error"
+
+    payload = {
+        "success": False,
+        "tool": tool_name,
+        "simulation_id": simulation_id,
+        "message": message,
+        "error": {
+            "type": normalized_error_type,
+            "class": type(exc).__name__ if exc is not None else None,
+            "message": str(exc) if exc is not None else message,
+        },
+    }
+    if issue_key:
+        payload["issue_key"] = issue_key
+    if actor:
+        payload["actor"] = actor
+    if extra:
+        payload.update(extra)
+    return _serialize_task_tool_payload(payload)
+
+
 def _format_task_summary(task) -> str:
     goal_label = f" | Goal: {task.parent_goal}" if task.parent_goal else ""
     deadline_parts = []
@@ -90,7 +134,15 @@ async def offer_task(
         )
         return f"Task offered: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
-        return f"Task offer rejected: {exc}"
+        return _build_task_tool_error(
+            "offer_task",
+            simulation_id=simulation_id,
+            issue_key=getattr(exc, "issue_key", ""),
+            actor=actor,
+            exc=exc,
+            message="Task offer rejected.",
+            extra={"assigned_to": assigned_to},
+        )
 
 
 @mcp.tool()
@@ -109,7 +161,14 @@ async def accept_task(
         )
         return f"Task accepted: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
-        return f"Task acceptance rejected: {exc}"
+        return _build_task_tool_error(
+            "accept_task",
+            simulation_id=simulation_id,
+            issue_key=issue_key,
+            actor=actor,
+            exc=exc,
+            message="Task acceptance rejected.",
+        )
 
 
 @mcp.tool()
@@ -128,7 +187,14 @@ async def decline_task(
         )
         return f"Task declined: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
-        return f"Task decline rejected: {exc}"
+        return _build_task_tool_error(
+            "decline_task",
+            simulation_id=simulation_id,
+            issue_key=issue_key,
+            actor=actor,
+            exc=exc,
+            message="Task decline rejected.",
+        )
 
 
 @mcp.tool()
@@ -145,7 +211,14 @@ async def get_task(
         )
         return _format_task_detail(task)
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
-        return f"Task lookup rejected: {exc}"
+        return _build_task_tool_error(
+            "get_task",
+            simulation_id=simulation_id,
+            issue_key=issue_key,
+            actor=actor,
+            exc=exc,
+            message="Task lookup rejected.",
+        )
 
 
 @mcp.tool()
@@ -164,7 +237,14 @@ async def start_task(
         )
         return f"Task started: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
-        return f"Task start rejected: {exc}"
+        return _build_task_tool_error(
+            "start_task",
+            simulation_id=simulation_id,
+            issue_key=issue_key,
+            actor=actor,
+            exc=exc,
+            message="Task start rejected.",
+        )
 
 
 @mcp.tool()
@@ -187,7 +267,15 @@ async def update_task_status(
         )
         return f"Task updated: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
-        return f"Task update rejected: {exc}"
+        return _build_task_tool_error(
+            "update_task_status",
+            simulation_id=simulation_id,
+            issue_key=issue_key,
+            actor=actor,
+            exc=exc,
+            message="Task update rejected.",
+            extra={"status": status},
+        )
 
 
 @mcp.tool()
@@ -206,7 +294,14 @@ async def block_task(
         )
         return f"Task blocked: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
-        return f"Task block rejected: {exc}"
+        return _build_task_tool_error(
+            "block_task",
+            simulation_id=simulation_id,
+            issue_key=issue_key,
+            actor=actor,
+            exc=exc,
+            message="Task block rejected.",
+        )
 
 
 @mcp.tool()
@@ -225,7 +320,14 @@ async def complete_task(
         )
         return f"Task completed: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
-        return f"Task completion rejected: {exc}"
+        return _build_task_tool_error(
+            "complete_task",
+            simulation_id=simulation_id,
+            issue_key=issue_key,
+            actor=actor,
+            exc=exc,
+            message="Task completion rejected.",
+        )
 
 
 def _decode_artifact_content(content: str, encoding: str) -> str | bytes:
@@ -279,7 +381,15 @@ async def save_task_artifact(
             f"({media_label}, {size_label} bytes) at {artifact.relative_path}"
         )
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
-        return f"Task artifact save rejected: {exc}"
+        return _build_task_tool_error(
+            "save_task_artifact",
+            simulation_id=simulation_id,
+            issue_key=issue_key,
+            actor=actor,
+            exc=exc,
+            message="Task artifact save rejected.",
+            extra={"filename": filename},
+        )
 
 
 @mcp.tool()
@@ -293,7 +403,14 @@ async def list_my_tasks(
     normalized_status = (status or "").strip().lower()
     if normalized_status and normalized_status not in set(_STATUS_ORDER):
         valid_values = ", ".join(_STATUS_ORDER)
-        return f"Invalid status '{status}'. Valid values: {valid_values}."
+        return _build_task_tool_error(
+            "list_my_tasks",
+            simulation_id=simulation_id,
+            actor=actor,
+            message=f"Invalid status '{status}'. Valid values: {valid_values}.",
+            error_type="validation_error",
+            extra={"status": status, "valid_statuses": list(_STATUS_ORDER)},
+        )
 
     tasks = lifecycle.store.list_tasks(
         assigned_to=actor,

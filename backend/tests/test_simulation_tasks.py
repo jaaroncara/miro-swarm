@@ -1,4 +1,5 @@
 import base64
+import copy
 import json
 import logging
 import sys
@@ -7,6 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from openai.types.chat.chat_completion import ChatCompletion
+
+from camel.models.openai_model import OpenAIModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -15,6 +19,7 @@ from mcp_servers import task_server
 import app.api.report as report_api
 import app.core.task_observability as task_observability
 import app.services.report_agent as report_agent_service
+import app.utils.oasis_llm as oasis_llm_module
 
 from app import create_app
 from app.config import Config
@@ -38,10 +43,43 @@ from app.core.task_round_processor import (
 from app.resources.reports.report_store import ReportStore
 from app.services.report_agent import Report, ReportManager, ReportStatus
 from app.utils.oasis_llm import (
+    MCPOpenAIModel,
     TASK_COORDINATION_SYSTEM_ADDENDUM,
     TASK_MCP_TOOL_ORDER,
     _ensure_task_tool_access,
+    _mcp_tool_loop_sync,
 )
+
+
+def _build_chat_completion(
+    *,
+    tool_calls: list[dict] | None = None,
+    content: str | None = None,
+) -> ChatCompletion:
+    return ChatCompletion.model_validate(
+        {
+            "id": "chatcmpl-test",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "gpt-4.1-mini",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": content,
+                        "tool_calls": tool_calls or [],
+                    },
+                    "finish_reason": "tool_calls" if tool_calls else "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+                "total_tokens": 2,
+            },
+        }
+    )
 
 
 @pytest.fixture
@@ -571,6 +609,186 @@ def test_task_tool_routing_keeps_task_lifecycle_tools_available():
     assert "lookup_business_data" in selected
     for tool_name in TASK_MCP_TOOL_ORDER:
         assert tool_name in selected
+
+
+def test_mcp_openai_model_reissues_native_tool_after_task_tool_results(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    model = object.__new__(MCPOpenAIModel)
+    model._simulation_id = "sim_test"
+
+    native_tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "create_post",
+                "description": "Publish a Slack update.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    mcp_schema = {
+        "type": "function",
+        "function": {
+            "name": "accept_task",
+            "description": "Accept a task offer.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+    mixed_response = _build_chat_completion(
+        tool_calls=[
+            {
+                "id": "mcp-1",
+                "type": "function",
+                "function": {
+                    "name": "accept_task",
+                    "arguments": json.dumps({"issue_key": "TEST-1"}),
+                },
+            },
+            {
+                "id": "native-1",
+                "type": "function",
+                "function": {
+                    "name": "create_post",
+                    "arguments": json.dumps(
+                        {"content": "@Alice TEST-1 accepted and underway."}
+                    ),
+                },
+            },
+        ]
+    )
+    follow_up_response = _build_chat_completion(
+        tool_calls=[
+            {
+                "id": "native-2",
+                "type": "function",
+                "function": {
+                    "name": "create_post",
+                    "arguments": json.dumps(
+                        {"content": "@Alice TEST-1 accepted and underway."}
+                    ),
+                },
+            }
+        ]
+    )
+    responses = iter([mixed_response, follow_up_response])
+    recorded_calls: list[dict] = []
+
+    def fake_request_chat_completion(self, messages, tools=None):
+        recorded_calls.append(
+            {
+                "messages": copy.deepcopy(messages),
+                "tools": copy.deepcopy(tools),
+            }
+        )
+        return next(responses)
+
+    monkeypatch.setattr(
+        MCPOpenAIModel,
+        "_get_mcp_tools_and_names",
+        lambda self, messages: ([mcp_schema], {"accept_task"}),
+    )
+    monkeypatch.setattr(
+        MCPOpenAIModel,
+        "_execute_mcp_tool_calls",
+        lambda self, tool_calls, mcp_tool_names, actor_name: [
+            {
+                "role": "tool",
+                "tool_call_id": "mcp-1",
+                "content": "Task TEST-1 accepted.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        OpenAIModel,
+        "_request_chat_completion",
+        fake_request_chat_completion,
+    )
+
+    response = MCPOpenAIModel._request_chat_completion(
+        model,
+        messages=[
+            {"role": "system", "content": "Your name is Bob."},
+            {"role": "user", "content": "Handle TEST-1 and post an update."},
+        ],
+        tools=native_tools,
+    )
+
+    assert len(recorded_calls) == 2
+    assert recorded_calls[0]["tools"] == native_tools + [mcp_schema]
+    assert recorded_calls[1]["tools"] == native_tools
+
+    assistant_history = next(
+        message
+        for message in recorded_calls[1]["messages"]
+        if message.get("role") == "assistant" and message.get("tool_calls")
+    )
+    assert [
+        tool_call["function"]["name"] for tool_call in assistant_history["tool_calls"]
+    ] == ["accept_task"]
+    assert recorded_calls[1]["messages"][-1]["role"] == "user"
+    assert "public update or reply" in recorded_calls[1]["messages"][-1]["content"]
+    assert "create_post" in recorded_calls[1]["messages"][-1]["content"]
+    assert response.choices[0].message.tool_calls[0].function.name == "create_post"
+
+
+def test_cli_mcp_loop_preserves_draft_public_update_after_tool_result(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FakeLLM:
+        def __init__(self):
+            self.calls = []
+
+        def chat(self, messages, temperature=1.0, max_tokens=4096):
+            self.calls.append(copy.deepcopy(messages))
+            if len(self.calls) == 1:
+                return (
+                    '<tool_call>{"name": "accept_task", "arguments": {"issue_key": "TEST-1"}}</tool_call>\n'
+                    'CREATE_POST: "@Alice TEST-1 accepted and underway."'
+                )
+            return 'CREATE_POST: "@Alice TEST-1 accepted and underway."'
+
+    fake_llm = FakeLLM()
+    fake_mgr = SimpleNamespace(
+        get_tools=lambda: [
+            SimpleNamespace(
+                name="accept_task",
+                description="Accept a task offer.",
+                inputSchema={"properties": {}},
+            )
+        ],
+        call_tool_sync=lambda tool_name, arguments: "Task TEST-1 accepted.",
+    )
+
+    monkeypatch.setattr(
+        oasis_llm_module,
+        "_get_mcp_manager_if_enabled",
+        lambda: fake_mgr,
+    )
+    monkeypatch.setattr(
+        oasis_llm_module._tool_router,
+        "select_tools",
+        lambda messages, tools: [tool.name for tool in tools],
+    )
+    monkeypatch.setattr(Config, "MCP_MAX_TOOL_ROUNDS", 2)
+
+    result = _mcp_tool_loop_sync(
+        fake_llm,
+        messages=[
+            {"role": "system", "content": "Your name is Bob."},
+            {"role": "user", "content": "Handle TEST-1 and post an update."},
+        ],
+        simulation_id="sim_test",
+    )
+
+    assert result.startswith('CREATE_POST: "@Alice TEST-1 accepted')
+    assert len(fake_llm.calls) == 2
+    assistant_history = fake_llm.calls[1][-2]
+    assert assistant_history["role"] == "assistant"
+    assert assistant_history["content"].startswith("<tool_call>")
+    follow_up_prompt = fake_llm.calls[1][-1]["content"]
+    assert "<draft_public_update>" in follow_up_prompt
+    assert "CREATE_POST" in follow_up_prompt
 
 
 def test_phase_one_store_reloads_across_stale_instances_and_persists_metadata(

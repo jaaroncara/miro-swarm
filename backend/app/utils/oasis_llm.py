@@ -576,10 +576,13 @@ class MCPOpenAIModel(OpenAIModel):
             if not assistant_msg.tool_calls:
                 return response
 
-            # Check if any of the tool calls target MCP tools
-            mcp_calls = [
-                tc for tc in assistant_msg.tool_calls if tc.function.name in mcp_names
-            ]
+            mcp_calls = []
+            native_calls = []
+            for tool_call in assistant_msg.tool_calls:
+                if tool_call.function.name in mcp_names:
+                    mcp_calls.append(tool_call)
+                else:
+                    native_calls.append(tool_call)
 
             if not mcp_calls:
                 # All tool calls are OASIS-native — return as-is
@@ -592,32 +595,33 @@ class MCPOpenAIModel(OpenAIModel):
 
             # Execute MCP tool calls
             tool_result_messages = self._execute_mcp_tool_calls(
-                assistant_msg.tool_calls,
+                mcp_calls,
                 mcp_names,
                 actor_name,
             )
 
-            # Build the assistant message dict with tool_calls for the
-            # conversation history
-            tc_dicts = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in assistant_msg.tool_calls
-            ]
             messages.append(
                 {
                     "role": "assistant",
                     "content": assistant_msg.content or "",
-                    "tool_calls": tc_dicts,
+                    "tool_calls": _serialize_openai_tool_calls(mcp_calls),
                 }
             )
             messages.extend(tool_result_messages)
+
+            if native_calls:
+                logger.warning(
+                    "Model mixed MCP and native tool calls; deferring native follow-up "
+                    f"until after task tool results: {[tc.function.name for tc in native_calls]}"
+                )
+                follow_up_messages = list(messages)
+                follow_up_messages.append(
+                    {
+                        "role": "user",
+                        "content": _build_native_follow_up_prompt(native_calls),
+                    }
+                )
+                return super()._request_chat_completion(follow_up_messages, tools)
 
         # Exhausted rounds — make one final call without tools so the model
         # produces a natural-language answer
@@ -749,18 +753,36 @@ _TOOL_CALL_RE = re.compile(
     re.DOTALL,
 )
 _ACTOR_NAME_RE = re.compile(r"Your name is\s+([^\.\n]+)", re.IGNORECASE)
+_DEFERRED_PUBLIC_UPDATE_PROMPT = (
+    "The task tool results above are now available. Your previous reply mixed "
+    "task-tool work with a public platform action. Now issue only the required "
+    "public update or reply for this turn, and do not call additional task MCP "
+    "tools unless you still need them."
+)
+
+
+def _extract_tool_call_xml_parts(
+    text: str,
+) -> tuple[Optional[Dict[str, Any]], str, str]:
+    """Extract the first tool call plus any surrounding non-tool content."""
+    match = _TOOL_CALL_RE.search(text)
+    if not match:
+        return None, "", ""
+
+    tool_block = match.group(0)
+    remainder = f"{text[: match.start()]}{text[match.end() :]}".strip()
+
+    try:
+        return json.loads(match.group(1)), tool_block, remainder
+    except json.JSONDecodeError:
+        logger.warning(f"Failed to parse MCP tool call JSON: {match.group(1)[:200]}")
+        return None, "", ""
 
 
 def _parse_tool_call_xml(text: str) -> Optional[Dict[str, Any]]:
     """Extract the first <tool_call>{...}</tool_call> from *text*."""
-    match = _TOOL_CALL_RE.search(text)
-    if not match:
-        return None
-    try:
-        return json.loads(match.group(1))
-    except json.JSONDecodeError:
-        logger.warning(f"Failed to parse MCP tool call JSON: {match.group(1)[:200]}")
-        return None
+    parsed, _, _ = _extract_tool_call_xml_parts(text)
+    return parsed
 
 
 def _get_mcp_manager_if_enabled():
@@ -844,6 +866,41 @@ def _prepare_mcp_tool_schema(
         function_block["description"] = f"{description}{auto_note}".strip()
 
     return patched
+
+
+def _serialize_openai_tool_calls(tool_calls) -> List[Dict[str, Any]]:
+    """Convert OpenAI tool-call objects into chat-history payloads."""
+    return [
+        {
+            "id": tc.id,
+            "type": "function",
+            "function": {
+                "name": tc.function.name,
+                "arguments": tc.function.arguments,
+            },
+        }
+        for tc in tool_calls
+    ]
+
+
+def _build_native_follow_up_prompt(native_tool_calls) -> str:
+    """Ask the model to re-issue deferred native platform actions."""
+    deferred_names: list[str] = []
+    seen_names: set[str] = set()
+    for tool_call in native_tool_calls:
+        tool_name = getattr(getattr(tool_call, "function", None), "name", "")
+        if tool_name and tool_name not in seen_names:
+            deferred_names.append(tool_name)
+            seen_names.add(tool_name)
+
+    if not deferred_names:
+        return _DEFERRED_PUBLIC_UPDATE_PROMPT
+
+    deferred_list = ", ".join(deferred_names)
+    return (
+        f"{_DEFERRED_PUBLIC_UPDATE_PROMPT} Re-issue the deferred platform action "
+        f"using: {deferred_list}."
+    )
 
 
 def _format_mcp_tool_descriptions(
@@ -1130,7 +1187,7 @@ def _mcp_tool_loop_sync(
         if content is None:
             return "(empty response from LLM)"
 
-        call = _parse_tool_call_xml(content)
+        call, tool_block, deferred_public_update = _extract_tool_call_xml_parts(content)
         if call is None:
             # No tool call — this is the final answer
             return content
@@ -1151,11 +1208,21 @@ def _mcp_tool_loop_sync(
             logger.warning(f"MCP tool '{tool_name}' failed: {exc}")
 
         # Append assistant message + observation
-        messages.append({"role": "assistant", "content": content})
+        messages.append({"role": "assistant", "content": tool_block or content})
+        observation_content = f"<observation>\n{observation}\n</observation>"
+        if deferred_public_update:
+            logger.warning(
+                "CLI response mixed an MCP tool call with a public action; "
+                "deferring the public update until after the observation"
+            )
+            observation_content = (
+                f"{observation_content}\n\n{_DEFERRED_PUBLIC_UPDATE_PROMPT}\n"
+                f"<draft_public_update>\n{deferred_public_update}\n</draft_public_update>"
+            )
         messages.append(
             {
                 "role": "user",
-                "content": f"<observation>\n{observation}\n</observation>",
+                "content": observation_content,
             }
         )
 
