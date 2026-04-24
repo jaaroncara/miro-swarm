@@ -204,66 +204,6 @@ export const getSimulationTasks = (simulationId, params = {}) => {
 }
 
 /**
- * Accept a pending simulation task offer
- * @param {string} simulationId
- * @param {string} taskRef
- * @param {Object} data - { actor, reason? }
- */
-export const acceptSimulationTask = (simulationId, taskRef, data) => {
-  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/accept`, data)
-}
-
-/**
- * Decline a pending simulation task offer
- * @param {string} simulationId
- * @param {string} taskRef
- * @param {Object} data - { actor, reason? }
- */
-export const declineSimulationTask = (simulationId, taskRef, data) => {
-  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/decline`, data)
-}
-
-/**
- * Start a simulation task
- * @param {string} simulationId
- * @param {string} taskRef
- * @param {Object} data - { actor, reason? }
- */
-export const startSimulationTask = (simulationId, taskRef, data) => {
-  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/start`, data)
-}
-
-/**
- * Record a generic simulation task status update or progress note
- * @param {string} simulationId
- * @param {string} taskRef
- * @param {Object} data - { actor, status, reason?, output? }
- */
-export const updateSimulationTaskStatus = (simulationId, taskRef, data) => {
-  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/status`, data)
-}
-
-/**
- * Block a simulation task
- * @param {string} simulationId
- * @param {string} taskRef
- * @param {Object} data - { actor, reason }
- */
-export const blockSimulationTask = (simulationId, taskRef, data) => {
-  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/block`, data)
-}
-
-/**
- * Complete a simulation task
- * @param {string} simulationId
- * @param {string} taskRef
- * @param {Object} data - { actor, output? }
- */
-export const completeSimulationTask = (simulationId, taskRef, data) => {
-  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/complete`, data)
-}
-
-/**
  * List staged artifacts for a simulation task
  * @param {string} simulationId
  * @param {string} taskRef
@@ -271,16 +211,6 @@ export const completeSimulationTask = (simulationId, taskRef, data) => {
  */
 export const getSimulationTaskArtifacts = (simulationId, taskRef, params = {}) => {
   return service.get(`/api/simulation/${simulationId}/tasks/${taskRef}/artifacts`, { params })
-}
-
-/**
- * Upload a staged artifact for a simulation task
- * @param {string} simulationId
- * @param {string} taskRef
- * @param {Object} data - { actor, filename, content, encoding?, media_type?, kind?, note? }
- */
-export const saveSimulationTaskArtifact = (simulationId, taskRef, data) => {
-  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/artifacts`, data)
 }
 
 /**

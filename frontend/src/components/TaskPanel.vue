@@ -3,7 +3,7 @@
     <div class="tp-header">
       <div class="tp-header-copy">
         <span class="tp-title">Tasks</span>
-        <span class="tp-subtitle">Track agent work during the simulation.</span>
+        <span class="tp-subtitle">Track agent-owned work during the simulation. Task updates and deliverables are published by the agents themselves.</span>
       </div>
       <div class="tp-header-actions">
         <span v-if="taskSummary.count || !loading" class="tp-count">{{ taskSummary.count }}</span>
@@ -110,94 +110,13 @@
                 </div>
 
                 <div class="tp-task-actions">
-                <button
-                  v-if="canAccept(task)"
-                  class="tp-action-btn tp-action-btn-primary"
-                  :disabled="isTaskMutating(task)"
-                  @click="openActionComposer(task, 'accept')"
-                >
-                  Accept
-                </button>
-                <button
-                  v-if="canDecline(task)"
-                  class="tp-action-btn"
-                  :disabled="isTaskMutating(task)"
-                  @click="openActionComposer(task, 'decline')"
-                >
-                  Decline
-                </button>
-                <button
-                  v-if="canStart(task)"
-                  class="tp-action-btn"
-                  :disabled="isTaskMutating(task)"
-                  @click="openActionComposer(task, 'start')"
-                >
-                  Start
-                </button>
-                <button
-                  v-if="canUpdate(task)"
-                  class="tp-action-btn"
-                  :disabled="isTaskMutating(task)"
-                  @click="openActionComposer(task, 'update')"
-                >
-                  Update
-                </button>
-                <button
-                  v-if="canBlock(task)"
-                  class="tp-action-btn"
-                  :disabled="isTaskMutating(task)"
-                  @click="openActionComposer(task, 'block')"
-                >
-                  Block
-                </button>
-                <button
-                  v-if="canComplete(task)"
-                  class="tp-action-btn tp-action-btn-primary"
-                  :disabled="isTaskMutating(task)"
-                  @click="openActionComposer(task, 'complete')"
-                >
-                  Complete
-                </button>
+                <span class="tp-readonly-badge">Agent-managed</span>
                 <button
                   class="tp-action-btn"
-                  :disabled="artifactPendingTaskId === task.id"
                   @click="toggleArtifactPanel(task)"
                 >
                   {{ isArtifactPanelOpen(task) ? 'Hide deliverables' : artifactButtonLabel(task) }}
                 </button>
-                </div>
-
-                <div v-if="isActionOpen(task)" class="tp-action-composer">
-                  <div class="tp-action-header">
-                    <span class="tp-action-title">{{ actionTitle }}</span>
-                    <button class="tp-close-btn" @click="closeActionComposer">Cancel</button>
-                  </div>
-
-                  <label class="tp-label" :for="`task-action-${task.id}`">{{ actionPrompt }}</label>
-                  <textarea
-                    :id="`task-action-${task.id}`"
-                    v-model="actionDraft.message"
-                    class="tp-textarea"
-                    rows="3"
-                    :placeholder="actionPlaceholder"
-                  />
-
-                  <div class="tp-form-footer tp-form-footer-compact">
-                    <span v-if="actionError" class="tp-inline-message tp-inline-error">{{ actionError }}</span>
-                    <span
-                      v-else-if="actionDraft.mode === 'complete' && !requiresCompletionSummary(task)"
-                      class="tp-inline-message"
-                    >
-                      Optional because this task already has a staged deliverable.
-                    </span>
-                    <button
-                      class="tp-primary-btn"
-                      :disabled="actionPendingTaskId === task.id"
-                      @click="submitTaskAction(task)"
-                    >
-                      {{ actionPendingTaskId === task.id ? actionButtonBusyLabel : actionButtonLabel }}
-                    </button>
-                  </div>
                 </div>
 
                 <div v-if="isArtifactPanelOpen(task)" class="tp-artifacts-panel">
@@ -220,44 +139,10 @@
                     </a>
                   </div>
                   <div v-else class="tp-artifact-empty">
-                    No deliverables uploaded yet.
+                    No deliverables published yet.
                   </div>
-
-                  <div v-if="canUploadDeliverable(task)" class="tp-artifact-upload">
-                    <label class="tp-label" :for="`task-artifact-${task.id}`">Upload a deliverable</label>
-                    <input
-                      :id="`task-artifact-${task.id}`"
-                      :key="artifactInputKey"
-                      class="tp-file-input"
-                      type="file"
-                      accept=".md,.markdown,.txt,.pdf"
-                      @change="handleArtifactFileSelected(task, $event)"
-                    >
-
-                    <div v-if="artifactDraft.fileName" class="tp-file-chip">
-                      Selected {{ artifactDraft.fileName }}
-                    </div>
-
-                    <label class="tp-label" :for="`task-artifact-note-${task.id}`">Optional note</label>
-                    <textarea
-                      :id="`task-artifact-note-${task.id}`"
-                      v-model="artifactDraft.note"
-                      class="tp-textarea"
-                      rows="2"
-                      placeholder="Describe what this deliverable contains."
-                    />
-
-                    <div class="tp-form-footer tp-form-footer-compact">
-                      <span v-if="artifactError" class="tp-inline-message tp-inline-error">{{ artifactError }}</span>
-                      <span v-else class="tp-inline-message">Allowed formats: .md, .txt, .pdf</span>
-                      <button
-                        class="tp-primary-btn"
-                        :disabled="artifactPendingTaskId === task.id"
-                        @click="submitArtifact(task)"
-                      >
-                        {{ artifactPendingTaskId === task.id ? 'Uploading...' : 'Upload deliverable' }}
-                      </button>
-                    </div>
+                  <div class="tp-inline-message">
+                    Deliverables appear here when the assignee publishes them from inside the simulation.
                   </div>
                 </div>
               </div>
@@ -270,15 +155,8 @@
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue'
 import {
-  acceptSimulationTask,
-  blockSimulationTask,
-  completeSimulationTask,
-  declineSimulationTask,
   getSimulationTaskArtifactDownloadUrl,
-  getSimulationTasks,
-  saveSimulationTaskArtifact,
-  startSimulationTask,
-  updateSimulationTaskStatus
+  getSimulationTasks
 } from '../api/simulation'
 
 const props = defineProps({
@@ -293,20 +171,13 @@ const props = defineProps({
 })
 
 const statusOrder = ['offered', 'open', 'in_progress', 'blocked', 'done', 'declined', 'expired']
-const artifactAcceptExtensions = ['md', 'markdown', 'txt', 'pdf']
 
 const tasks = ref([])
 const taskSummary = ref({ count: 0 })
 const loading = ref(false)
 const error = ref(null)
-const actionError = ref('')
 const expandedTaskId = ref('')
-const actionDraft = ref({ taskId: '', mode: '', message: '' })
-const actionPendingTaskId = ref('')
-const artifactDraft = ref({ taskId: '', note: '', file: null, fileName: '' })
-const artifactPendingTaskId = ref('')
-const artifactError = ref('')
-const artifactInputKey = ref(0)
+const artifactPanelTaskId = ref('')
 
 let pollTimer = null
 const statusRank = new Map(statusOrder.map((status, index) => [status, index]))
@@ -351,10 +222,7 @@ const isTaskExpanded = (task) => {
 }
 
 const closePanelsForTask = (taskId) => {
-  if (actionDraft.value.taskId === taskId) {
-    closeActionComposer()
-  }
-  if (artifactDraft.value.taskId === taskId) {
+  if (artifactPanelTaskId.value === taskId) {
     closeArtifactPanel()
   }
 }
@@ -398,120 +266,6 @@ const orderedTasks = computed(() => {
     return rightTs - leftTs
   })
 })
-
-const actionTitle = computed(() => {
-  if (actionDraft.value.mode === 'accept') {
-    return 'Accept task offer'
-  }
-  if (actionDraft.value.mode === 'decline') {
-    return 'Decline task offer'
-  }
-  if (actionDraft.value.mode === 'start') {
-    return 'Start task'
-  }
-  if (actionDraft.value.mode === 'update') {
-    return 'Post progress update'
-  }
-  if (actionDraft.value.mode === 'block') {
-    return 'Block task'
-  }
-  if (actionDraft.value.mode === 'complete') {
-    return 'Complete task'
-  }
-  return 'Update task'
-})
-
-const actionPrompt = computed(() => {
-  if (actionDraft.value.mode === 'accept') {
-    return 'Optional acceptance note'
-  }
-  if (actionDraft.value.mode === 'decline') {
-    return 'Decline reason'
-  }
-  if (actionDraft.value.mode === 'start') {
-    return 'Optional note'
-  }
-  if (actionDraft.value.mode === 'update') {
-    return 'Progress note'
-  }
-  if (actionDraft.value.mode === 'block') {
-    return 'Blocking reason'
-  }
-  if (actionDraft.value.mode === 'complete') {
-    return 'Completion summary'
-  }
-  return 'Details'
-})
-
-const actionPlaceholder = computed(() => {
-  if (actionDraft.value.mode === 'accept') {
-    return 'Optional plan for how you will handle this work.'
-  }
-  if (actionDraft.value.mode === 'decline') {
-    return 'Explain why you cannot take this on.'
-  }
-  if (actionDraft.value.mode === 'start') {
-    return 'Optional context for the assignee starting the work.'
-  }
-  if (actionDraft.value.mode === 'update') {
-    return 'Share a concise progress update or status note.'
-  }
-  if (actionDraft.value.mode === 'block') {
-    return 'Explain what is blocking progress.'
-  }
-  if (actionDraft.value.mode === 'complete') {
-    return 'Summarize the delivered output.'
-  }
-  return 'Add details'
-})
-
-const actionButtonLabel = computed(() => {
-  if (actionDraft.value.mode === 'accept') {
-    return 'Accept offer'
-  }
-  if (actionDraft.value.mode === 'decline') {
-    return 'Decline offer'
-  }
-  if (actionDraft.value.mode === 'start') {
-    return 'Confirm start'
-  }
-  if (actionDraft.value.mode === 'update') {
-    return 'Save update'
-  }
-  if (actionDraft.value.mode === 'block') {
-    return 'Save blocked status'
-  }
-  if (actionDraft.value.mode === 'complete') {
-    return 'Mark complete'
-  }
-  return 'Save'
-})
-
-const actionButtonBusyLabel = computed(() => {
-  if (actionDraft.value.mode === 'accept') {
-    return 'Accepting...'
-  }
-  if (actionDraft.value.mode === 'decline') {
-    return 'Declining...'
-  }
-  if (actionDraft.value.mode === 'start') {
-    return 'Starting...'
-  }
-  if (actionDraft.value.mode === 'update') {
-    return 'Saving update...'
-  }
-  if (actionDraft.value.mode === 'block') {
-    return 'Blocking...'
-  }
-  if (actionDraft.value.mode === 'complete') {
-    return 'Completing...'
-  }
-  return 'Saving...'
-})
-
-const requiresCompletionSummary = (task) => {
-  return !((task?.artifact_count || 0) > 0)
-}
 
 const taskRef = (task) => {
   return task.issue_key || task.id
@@ -563,10 +317,7 @@ const applyTaskCollection = (payload) => {
     expandedTaskId.value = ''
   }
 
-  if (actionDraft.value.taskId && !validTaskIds.has(actionDraft.value.taskId)) {
-    closeActionComposer()
-  }
-  if (artifactDraft.value.taskId && !validTaskIds.has(artifactDraft.value.taskId)) {
+  if (artifactPanelTaskId.value && !validTaskIds.has(artifactPanelTaskId.value)) {
     closeArtifactPanel()
   }
 }
@@ -588,272 +339,21 @@ const loadTasks = async () => {
   }
 }
 
-const hasAssignee = (task) => {
-  return Boolean(String(task?.assigned_to || '').trim())
-}
-
-const canStart = (task) => {
-  return hasAssignee(task) && (task.status === 'open' || task.status === 'blocked')
-}
-
-const canAccept = (task) => {
-  return hasAssignee(task) && task.status === 'offered'
-}
-
-const canDecline = (task) => {
-  return hasAssignee(task) && task.status === 'offered'
-}
-
-const canBlock = (task) => {
-  return hasAssignee(task) && (task.status === 'open' || task.status === 'in_progress')
-}
-
-const canUpdate = (task) => {
-  return hasAssignee(task) && ['open', 'in_progress', 'blocked'].includes(task.status)
-}
-
-const canComplete = (task) => {
-  return hasAssignee(task) && ['open', 'in_progress', 'blocked'].includes(task.status)
-}
-
-const canUploadDeliverable = (task) => {
-  return hasAssignee(task) && !['declined', 'expired'].includes(task.status)
-}
-
-const isActionOpen = (task) => {
-  return actionDraft.value.taskId === task.id
-}
-
 const isArtifactPanelOpen = (task) => {
-  return artifactDraft.value.taskId === task.id
-}
-
-const isTaskMutating = (task) => {
-  return actionPendingTaskId.value === task.id
-}
-
-const openActionComposer = (task, mode) => {
-  actionError.value = ''
-  expandTaskCard(task.id)
-  actionDraft.value = {
-    taskId: task.id,
-    mode,
-    message: ''
-  }
-}
-
-const closeActionComposer = () => {
-  actionError.value = ''
-  actionDraft.value = { taskId: '', mode: '', message: '' }
+  return artifactPanelTaskId.value === task.id
 }
 
 const closeArtifactPanel = () => {
-  artifactError.value = ''
-  artifactDraft.value = { taskId: '', note: '', file: null, fileName: '' }
-  artifactInputKey.value += 1
+  artifactPanelTaskId.value = ''
 }
 
 const toggleArtifactPanel = (task) => {
-  artifactError.value = ''
   if (isArtifactPanelOpen(task)) {
     closeArtifactPanel()
     return
   }
   expandTaskCard(task.id)
-  artifactDraft.value = {
-    taskId: task.id,
-    note: '',
-    file: null,
-    fileName: ''
-  }
-  artifactInputKey.value += 1
-}
-
-const resolveActionActor = (task) => {
-  return String(task.assigned_to || '').trim()
-}
-
-const inferMediaType = (filename) => {
-  const normalized = String(filename || '').trim().toLowerCase()
-  if (normalized.endsWith('.pdf')) {
-    return 'application/pdf'
-  }
-  if (normalized.endsWith('.md') || normalized.endsWith('.markdown')) {
-    return 'text/markdown'
-  }
-  return 'text/plain'
-}
-
-const isAllowedArtifactFile = (file) => {
-  const fileName = String(file?.name || '').toLowerCase()
-  const extension = fileName.includes('.') ? fileName.split('.').pop() : ''
-  return artifactAcceptExtensions.includes(extension)
-}
-
-const readFileAsBase64 = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const bytes = new Uint8Array(reader.result)
-      let binary = ''
-      bytes.forEach((value) => {
-        binary += String.fromCharCode(value)
-      })
-      resolve(window.btoa(binary))
-    }
-    reader.onerror = () => {
-      reject(new Error('Failed to read the selected file.'))
-    }
-    reader.readAsArrayBuffer(file)
-  })
-}
-
-const handleArtifactFileSelected = (task, event) => {
-  artifactError.value = ''
-  const file = event?.target?.files?.[0]
-  if (!file) {
-    artifactDraft.value = { ...artifactDraft.value, taskId: task.id, file: null, fileName: '' }
-    return
-  }
-  if (!isAllowedArtifactFile(file)) {
-    artifactError.value = 'Unsupported file type. Use .md, .txt, or .pdf.'
-    artifactDraft.value = { ...artifactDraft.value, taskId: task.id, file: null, fileName: '' }
-    artifactInputKey.value += 1
-    return
-  }
-  artifactDraft.value = {
-    ...artifactDraft.value,
-    taskId: task.id,
-    file,
-    fileName: file.name
-  }
-}
-
-const submitArtifact = async (task) => {
-  artifactError.value = ''
-
-  const actor = resolveActionActor(task)
-  const file = artifactDraft.value.file
-
-  if (!actor) {
-    artifactError.value = 'This task has no assignee, so no deliverable can be uploaded from the panel.'
-    return
-  }
-  if (!file) {
-    artifactError.value = 'Choose a deliverable file first.'
-    return
-  }
-  if (!isAllowedArtifactFile(file)) {
-    artifactError.value = 'Unsupported file type. Use .md, .txt, or .pdf.'
-    return
-  }
-
-  artifactPendingTaskId.value = task.id
-  try {
-    const content = await readFileAsBase64(file)
-    await saveSimulationTaskArtifact(props.simulationId, taskRef(task), {
-      actor,
-      filename: file.name,
-      content,
-      encoding: 'base64',
-      media_type: file.type || inferMediaType(file.name),
-      kind: 'deliverable',
-      note: String(artifactDraft.value.note || '').trim() || undefined
-    })
-    artifactDraft.value = {
-      taskId: task.id,
-      note: '',
-      file: null,
-      fileName: ''
-    }
-    artifactInputKey.value += 1
-    await loadTasks()
-  } catch (err) {
-    artifactError.value = err.message || 'Failed to upload deliverable'
-  } finally {
-    artifactPendingTaskId.value = ''
-  }
-}
-
-const submitTaskAction = async (task) => {
-  actionError.value = ''
-
-  const actor = resolveActionActor(task)
-  const message = String(actionDraft.value.message || '').trim()
-
-  if (!actor) {
-    actionError.value = 'This task has no assignee, so it cannot be updated from the panel.'
-    return
-  }
-  if (actionDraft.value.mode === 'decline' && !message) {
-    actionError.value = 'Declined offers require a reason.'
-    return
-  }
-  if (actionDraft.value.mode === 'block' && !message) {
-    actionError.value = 'Blocked tasks require a reason.'
-    return
-  }
-  if (actionDraft.value.mode === 'update' && !message) {
-    actionError.value = 'Progress updates require a note.'
-    return
-  }
-  if (actionDraft.value.mode === 'complete' && !message && requiresCompletionSummary(task)) {
-    actionError.value = 'Completed tasks require an output summary or a staged deliverable.'
-    return
-  }
-
-  actionPendingTaskId.value = task.id
-  try {
-    if (actionDraft.value.mode === 'accept') {
-      await acceptSimulationTask(props.simulationId, taskRef(task), {
-        actor,
-        reason: message
-      })
-    }
-
-    if (actionDraft.value.mode === 'decline') {
-      await declineSimulationTask(props.simulationId, taskRef(task), {
-        actor,
-        reason: message
-      })
-    }
-
-    if (actionDraft.value.mode === 'start') {
-      await startSimulationTask(props.simulationId, taskRef(task), {
-        actor,
-        reason: message
-      })
-    }
-
-    if (actionDraft.value.mode === 'update') {
-      await updateSimulationTaskStatus(props.simulationId, taskRef(task), {
-        actor,
-        status: task.status,
-        reason: message
-      })
-    }
-
-    if (actionDraft.value.mode === 'block') {
-      await blockSimulationTask(props.simulationId, taskRef(task), {
-        actor,
-        reason: message
-      })
-    }
-
-    if (actionDraft.value.mode === 'complete') {
-      await completeSimulationTask(props.simulationId, taskRef(task), {
-        actor,
-        output: message
-      })
-    }
-
-    closeActionComposer()
-    await loadTasks()
-  } catch (err) {
-    actionError.value = err.message || 'Failed to update task'
-  } finally {
-    actionPendingTaskId.value = ''
-  }
+  artifactPanelTaskId.value = task.id
 }
 
 const refreshPanel = async () => {
@@ -1315,6 +815,20 @@ onUnmounted(() => {
 .tp-task-actions {
   justify-content: flex-start;
   flex-wrap: wrap;
+}
+
+.tp-readonly-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(26, 147, 111, 0.12);
+  border: 1px solid rgba(26, 147, 111, 0.24);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .tp-action-btn,

@@ -68,6 +68,31 @@ def task_api_client(simulation_root: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(Config, "MCP_SERVER_ENABLED", False)
     monkeypatch.setattr(Config, "OASIS_SIMULATION_DATA_DIR", str(simulation_root))
     monkeypatch.setattr(Config, "UPLOAD_FOLDER", str(upload_dir))
+    monkeypatch.setattr(Config, "ALLOW_BROWSER_TASK_MUTATIONS", False)
+    monkeypatch.setattr(ReportManager, "REPORTS_DIR", str(upload_dir / "reports"))
+
+    app = create_app(Config)
+    app.config.update(TESTING=True)
+
+    with app.test_client() as client:
+        yield client
+
+
+@pytest.fixture
+def task_api_client_with_mutations(
+    simulation_root: Path, monkeypatch: pytest.MonkeyPatch
+):
+    data_dir = simulation_root.parent / "json_graphs"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = simulation_root.parent / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(Config, "GRAPH_BACKEND", "json")
+    monkeypatch.setattr(Config, "DATA_DIR", str(data_dir))
+    monkeypatch.setattr(Config, "MCP_SERVER_ENABLED", False)
+    monkeypatch.setattr(Config, "OASIS_SIMULATION_DATA_DIR", str(simulation_root))
+    monkeypatch.setattr(Config, "UPLOAD_FOLDER", str(upload_dir))
+    monkeypatch.setattr(Config, "ALLOW_BROWSER_TASK_MUTATIONS", True)
     monkeypatch.setattr(ReportManager, "REPORTS_DIR", str(upload_dir / "reports"))
 
     app = create_app(Config)
@@ -1313,8 +1338,40 @@ def test_invalid_task_payloads_fail_fast(simulation_root: Path, payload: list[di
         store.list_tasks()
 
 
-def test_simulation_task_api_supports_create_query_and_detail(task_api_client):
+def test_simulation_task_mutation_routes_are_disabled_by_default(task_api_client):
     create_response = task_api_client.post(
+        "/api/simulation/sim_test/tasks",
+        json={
+            "title": "Assemble brief",
+            "description": "Summarize the key developments.",
+            "assigned_to": "Bob",
+            "actor": "Alice",
+        },
+    )
+
+    assert create_response.status_code == 403
+    assert "manage tasks autonomously" in create_response.get_json()["error"]
+
+    lifecycle = TaskLifecycleService("sim_test")
+    task = lifecycle.create_task(
+        title="Draft response",
+        description="Prepare the response memo.",
+        assigned_to="Bob",
+        actor="Alice",
+    )
+
+    start_response = task_api_client.post(
+        f"/api/simulation/sim_test/tasks/{task.issue_key}/start",
+        json={"actor": "Bob", "reason": "Reviewing source material"},
+    )
+    assert start_response.status_code == 403
+    assert "manage tasks autonomously" in start_response.get_json()["error"]
+
+
+def test_simulation_task_api_supports_create_query_and_detail(
+    task_api_client_with_mutations,
+):
+    create_response = task_api_client_with_mutations.post(
         "/api/simulation/sim_test/tasks",
         json={
             "title": "Assemble brief",
@@ -1337,7 +1394,7 @@ def test_simulation_task_api_supports_create_query_and_detail(task_api_client):
         "assigned_to": "Bob",
     }
 
-    list_response = task_api_client.get(
+    list_response = task_api_client_with_mutations.get(
         "/api/simulation/sim_test/tasks",
         query_string={"assigned_to": "Bob", "status": "open", "completed": "false"},
     )
@@ -1352,7 +1409,7 @@ def test_simulation_task_api_supports_create_query_and_detail(task_api_client):
     }
     assert list_payload["tasks"][0]["issue_key"] == "TEST-1"
 
-    detail_response = task_api_client.get(
+    detail_response = task_api_client_with_mutations.get(
         "/api/simulation/sim_test/tasks/TEST-1",
         query_string={"actor": "Bob"},
     )
@@ -1361,22 +1418,24 @@ def test_simulation_task_api_supports_create_query_and_detail(task_api_client):
     assert detail_task["issue_key"] == "TEST-1"
     assert detail_task["assigned_by"] == "Alice"
 
-    unauthorized_response = task_api_client.get(
+    unauthorized_response = task_api_client_with_mutations.get(
         "/api/simulation/sim_test/tasks/TEST-1",
         query_string={"actor": "Mallory"},
     )
     assert unauthorized_response.status_code == 403
     assert "not allowed to view task" in unauthorized_response.get_json()["error"]
 
-    invalid_filter_response = task_api_client.get(
+    invalid_filter_response = task_api_client_with_mutations.get(
         "/api/simulation/sim_test/tasks",
         query_string={"completed": "maybe"},
     )
     assert invalid_filter_response.status_code == 400
 
 
-def test_simulation_task_api_supports_start_block_and_complete(task_api_client):
-    task_api_client.post(
+def test_simulation_task_api_supports_start_block_and_complete(
+    task_api_client_with_mutations,
+):
+    task_api_client_with_mutations.post(
         "/api/simulation/sim_test/tasks",
         json={
             "title": "Draft response",
@@ -1386,7 +1445,7 @@ def test_simulation_task_api_supports_start_block_and_complete(task_api_client):
         },
     )
 
-    started_response = task_api_client.post(
+    started_response = task_api_client_with_mutations.post(
         "/api/simulation/sim_test/tasks/TEST-1/start",
         json={"actor": "Bob", "reason": "Reviewing source material"},
     )
@@ -1395,7 +1454,7 @@ def test_simulation_task_api_supports_start_block_and_complete(task_api_client):
     assert started_task["status"] == "in_progress"
     assert started_task["latest_event"]["event_type"] == "started"
 
-    blocked_response = task_api_client.post(
+    blocked_response = task_api_client_with_mutations.post(
         "/api/simulation/sim_test/tasks/TEST-1/block",
         json={"actor": "Bob", "reason": "Waiting for legal review"},
     )
@@ -1404,7 +1463,7 @@ def test_simulation_task_api_supports_start_block_and_complete(task_api_client):
     assert blocked_task["status"] == "blocked"
     assert blocked_task["latest_event"]["event_type"] == "blocked"
 
-    completed_response = task_api_client.post(
+    completed_response = task_api_client_with_mutations.post(
         "/api/simulation/sim_test/tasks/TEST-1/complete",
         json={"actor": "Bob", "output": "Memo delivered"},
     )
@@ -1414,13 +1473,13 @@ def test_simulation_task_api_supports_start_block_and_complete(task_api_client):
     assert completed_task["output"] == "Memo delivered"
     assert completed_task["latest_event"]["event_type"] == "completed"
 
-    unauthorized_start = task_api_client.post(
+    unauthorized_start = task_api_client_with_mutations.post(
         "/api/simulation/sim_test/tasks/TEST-1/start",
         json={"actor": "Mallory", "reason": "Hijacking task"},
     )
     assert unauthorized_start.status_code == 403
 
-    completed_filter_response = task_api_client.get(
+    completed_filter_response = task_api_client_with_mutations.get(
         "/api/simulation/sim_test/tasks",
         query_string={"completed": "true"},
     )
@@ -1431,7 +1490,7 @@ def test_simulation_task_api_supports_start_block_and_complete(task_api_client):
 
 
 def test_phase_six_task_api_supports_accept_decline_and_artifacts(
-    task_api_client,
+    task_api_client_with_mutations,
 ):
     lifecycle = TaskLifecycleService("sim_test")
 
@@ -1448,7 +1507,7 @@ def test_phase_six_task_api_supports_accept_decline_and_artifacts(
         actor="Alice",
     )
 
-    accepted_response = task_api_client.post(
+    accepted_response = task_api_client_with_mutations.post(
         f"/api/simulation/sim_test/tasks/{offered.issue_key}/accept",
         json={"actor": "Bob", "reason": "Taking it"},
     )
@@ -1457,7 +1516,7 @@ def test_phase_six_task_api_supports_accept_decline_and_artifacts(
     assert accepted_task["status"] == "open"
     assert accepted_task["latest_event"]["event_type"] == "accepted"
 
-    declined_response = task_api_client.post(
+    declined_response = task_api_client_with_mutations.post(
         f"/api/simulation/sim_test/tasks/{decline_offer.issue_key}/decline",
         json={"actor": "Cara", "reason": "No bandwidth"},
     )
@@ -1465,7 +1524,7 @@ def test_phase_six_task_api_supports_accept_decline_and_artifacts(
     declined_task = declined_response.get_json()["data"]["task"]
     assert declined_task["status"] == "declined"
 
-    artifact_response = task_api_client.post(
+    artifact_response = task_api_client_with_mutations.post(
         f"/api/simulation/sim_test/tasks/{offered.issue_key}/artifacts",
         json={
             "actor": "Bob",
@@ -1479,7 +1538,7 @@ def test_phase_six_task_api_supports_accept_decline_and_artifacts(
     artifact_id = artifact_payload["artifact"]["artifact_id"]
     assert artifact_payload["artifact"]["filename"] == "brief.txt"
 
-    artifacts_response = task_api_client.get(
+    artifacts_response = task_api_client_with_mutations.get(
         f"/api/simulation/sim_test/tasks/{offered.issue_key}/artifacts",
         query_string={"actor": "Bob"},
     )
@@ -1488,14 +1547,14 @@ def test_phase_six_task_api_supports_accept_decline_and_artifacts(
     assert len(artifacts) == 1
     assert artifacts[0]["download_url"].endswith(f"/{artifact_id}")
 
-    download_response = task_api_client.get(
+    download_response = task_api_client_with_mutations.get(
         f"/api/simulation/sim_test/tasks/{offered.issue_key}/artifacts/{artifact_id}",
         query_string={"actor": "Bob"},
     )
     assert download_response.status_code == 200
     assert download_response.data == b"Deliverable body"
 
-    completed_response = task_api_client.post(
+    completed_response = task_api_client_with_mutations.post(
         f"/api/simulation/sim_test/tasks/{offered.issue_key}/complete",
         json={"actor": "Bob", "output": ""},
     )
@@ -1506,9 +1565,9 @@ def test_phase_six_task_api_supports_accept_decline_and_artifacts(
 
 
 def test_phase_six_task_api_supports_generic_status_updates_and_metadata(
-    task_api_client,
+    task_api_client_with_mutations,
 ):
-    create_response = task_api_client.post(
+    create_response = task_api_client_with_mutations.post(
         "/api/simulation/sim_test/tasks",
         json={
             "title": "Prepare KPI summary",
@@ -1534,7 +1593,7 @@ def test_phase_six_task_api_supports_generic_status_updates_and_metadata(
         == "Include the top three KPIs."
     )
 
-    update_response = task_api_client.post(
+    update_response = task_api_client_with_mutations.post(
         "/api/simulation/sim_test/tasks/TEST-1/status",
         json={
             "actor": "Bob",
@@ -1551,8 +1610,8 @@ def test_phase_six_task_api_supports_generic_status_updates_and_metadata(
     )
 
 
-def test_task_api_rejects_meeting_only_requests(task_api_client):
-    create_response = task_api_client.post(
+def test_task_api_rejects_meeting_only_requests(task_api_client_with_mutations):
+    create_response = task_api_client_with_mutations.post(
         "/api/simulation/sim_test/tasks",
         json={
             "title": "Set up a meeting with Marketing",

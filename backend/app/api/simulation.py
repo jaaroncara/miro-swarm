@@ -6,7 +6,7 @@ Step2: Entity reading & filtering, OASIS simulation preparation & execution (ful
 import base64
 import binascii
 import os
-from flask import request, jsonify, send_file
+from flask import current_app, request, jsonify, send_file
 
 from . import simulation_bp
 from ..config import Config
@@ -35,6 +35,7 @@ from ..models.project import ProjectManager
 logger = get_logger("mirofish.api.simulation")
 
 _TASK_API_VALID_STATUSES = TASK_STATUS_ORDER
+_TASK_MUTATION_DISABLED_ERROR = "Manual task mutation is disabled. Simulation agents must manage tasks autonomously."
 
 
 # Interview prompt optimization prefix
@@ -685,6 +686,20 @@ def _get_task_actor(data: dict):
     return str(data.get("actor") or "").strip()
 
 
+def _require_browser_task_mutations_enabled():
+    if current_app.config.get("ALLOW_BROWSER_TASK_MUTATIONS", False):
+        return None
+    return (
+        jsonify(
+            {
+                "success": False,
+                "error": _TASK_MUTATION_DISABLED_ERROR,
+            }
+        ),
+        403,
+    )
+
+
 def _get_report_id_for_simulation(simulation_id: str) -> str:
     """Get the latest report_id for a simulation.
 
@@ -799,6 +814,10 @@ def get_simulation_tasks(simulation_id: str):
 @simulation_bp.route("/<simulation_id>/tasks", methods=["POST"])
 def create_simulation_task(simulation_id: str):
     """Create a manual simulation task using the canonical lifecycle service."""
+    disabled_response = _require_browser_task_mutations_enabled()
+    if disabled_response is not None:
+        return disabled_response
+
     try:
         data = request.get_json(silent=True) or {}
         lifecycle = TaskLifecycleService(simulation_id=simulation_id)
@@ -887,6 +906,10 @@ def get_simulation_task(simulation_id: str, task_ref: str):
 @simulation_bp.route("/<simulation_id>/tasks/<task_ref>/accept", methods=["POST"])
 def accept_simulation_task(simulation_id: str, task_ref: str):
     """Accept a pending task offer."""
+    disabled_response = _require_browser_task_mutations_enabled()
+    if disabled_response is not None:
+        return disabled_response
+
     try:
         data = request.get_json(silent=True) or {}
         lifecycle = TaskLifecycleService(simulation_id=simulation_id)
@@ -922,6 +945,10 @@ def accept_simulation_task(simulation_id: str, task_ref: str):
 @simulation_bp.route("/<simulation_id>/tasks/<task_ref>/decline", methods=["POST"])
 def decline_simulation_task(simulation_id: str, task_ref: str):
     """Decline a pending task offer."""
+    disabled_response = _require_browser_task_mutations_enabled()
+    if disabled_response is not None:
+        return disabled_response
+
     try:
         data = request.get_json(silent=True) or {}
         lifecycle = TaskLifecycleService(simulation_id=simulation_id)
@@ -957,6 +984,10 @@ def decline_simulation_task(simulation_id: str, task_ref: str):
 @simulation_bp.route("/<simulation_id>/tasks/<task_ref>/start", methods=["POST"])
 def start_simulation_task(simulation_id: str, task_ref: str):
     """Mark a task as in progress."""
+    disabled_response = _require_browser_task_mutations_enabled()
+    if disabled_response is not None:
+        return disabled_response
+
     try:
         data = request.get_json(silent=True) or {}
         lifecycle = TaskLifecycleService(simulation_id=simulation_id)
@@ -992,6 +1023,10 @@ def start_simulation_task(simulation_id: str, task_ref: str):
 @simulation_bp.route("/<simulation_id>/tasks/<task_ref>/block", methods=["POST"])
 def block_simulation_task(simulation_id: str, task_ref: str):
     """Mark a task as blocked."""
+    disabled_response = _require_browser_task_mutations_enabled()
+    if disabled_response is not None:
+        return disabled_response
+
     try:
         data = request.get_json(silent=True) or {}
         lifecycle = TaskLifecycleService(simulation_id=simulation_id)
@@ -1027,6 +1062,10 @@ def block_simulation_task(simulation_id: str, task_ref: str):
 @simulation_bp.route("/<simulation_id>/tasks/<task_ref>/status", methods=["POST"])
 def update_simulation_task_status(simulation_id: str, task_ref: str):
     """Record a generic task status update or progress note."""
+    disabled_response = _require_browser_task_mutations_enabled()
+    if disabled_response is not None:
+        return disabled_response
+
     try:
         data = request.get_json(silent=True) or {}
         lifecycle = TaskLifecycleService(simulation_id=simulation_id)
@@ -1064,6 +1103,10 @@ def update_simulation_task_status(simulation_id: str, task_ref: str):
 @simulation_bp.route("/<simulation_id>/tasks/<task_ref>/complete", methods=["POST"])
 def complete_simulation_task(simulation_id: str, task_ref: str):
     """Mark a task as complete."""
+    disabled_response = _require_browser_task_mutations_enabled()
+    if disabled_response is not None:
+        return disabled_response
+
     try:
         data = request.get_json(silent=True) or {}
         lifecycle = TaskLifecycleService(simulation_id=simulation_id)
@@ -1140,6 +1183,10 @@ def list_simulation_task_artifacts(simulation_id: str, task_ref: str):
 @simulation_bp.route("/<simulation_id>/tasks/<task_ref>/artifacts", methods=["POST"])
 def save_simulation_task_artifact(simulation_id: str, task_ref: str):
     """Upload a task artifact using JSON content or base64-encoded bytes."""
+    disabled_response = _require_browser_task_mutations_enabled()
+    if disabled_response is not None:
+        return disabled_response
+
     try:
         data = request.get_json(silent=True) or {}
         lifecycle = TaskLifecycleService(simulation_id=simulation_id)
