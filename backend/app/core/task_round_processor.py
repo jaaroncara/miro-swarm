@@ -161,7 +161,11 @@ def process_task_actions_for_round(
         if parsed is not None and parsed.action_type == "create":
             continue
 
-        for mention_token, recipient_name in _extract_delegation_targets(
+        for (
+            mention_token,
+            recipient_name,
+            task_request_text,
+        ) in _extract_delegation_targets(
             content,
             actor_name=actor_name,
             mention_aliases=mention_aliases,
@@ -180,6 +184,7 @@ def process_task_actions_for_round(
                 "source_action_type": action_data.get("action_type"),
                 "mention_token": mention_token,
                 "target_agent": recipient_name,
+                "task_request": task_request_text,
                 "snippet": _build_snippet(public_text),
             }
             if action_data.get("trace_rowid") is not None:
@@ -202,19 +207,17 @@ def process_task_actions_for_round(
                 origin_metadata["comment_id"] = action_args["comment_id"]
 
             try:
-                title = _build_mention_offer_title(
-                    actor_name, public_text, mention_token
-                )
+                title = _build_mention_offer_title(actor_name, task_request_text)
                 task_request_metadata = prepare_task_request_metadata(
                     title=title,
-                    description=public_text,
+                    description=task_request_text,
                 )
             except TaskLifecycleError as exc:
                 _queue_non_executable_offer_notification(
                     store=store,
                     recipient_name=recipient_name,
                     actor_name=actor_name,
-                    public_text=public_text,
+                    public_text=task_request_text,
                     mention_context=mention_context,
                     round_index=round_index,
                 )
@@ -232,7 +235,7 @@ def process_task_actions_for_round(
             try:
                 task = lifecycle.offer_task(
                     title=title,
-                    description=public_text,
+                    description=task_request_text,
                     assigned_to=recipient_name,
                     actor=actor_name,
                     origin="mention_compat",
@@ -402,7 +405,7 @@ def _extract_delegation_targets(
     *,
     actor_name: str,
     mention_aliases: dict[str, str],
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, str]]:
     public_text = _normalize_space(strip_task_action(content))
     if not public_text:
         return []
@@ -412,7 +415,7 @@ def _extract_delegation_targets(
         return []
 
     seen_recipients: set[str] = set()
-    targets: list[tuple[str, str]] = []
+    targets: list[tuple[str, str, str]] = []
     for match in matches:
         mention_token = match.group("handle")
         recipient_name = mention_aliases.get(_normalize_mention_token(mention_token))
@@ -422,8 +425,11 @@ def _extract_delegation_targets(
             continue
         if not _looks_like_delegation(public_text, match, matches):
             continue
+        task_request_text = _derive_mention_task_request(public_text, match, matches)
+        if not task_request_text:
+            continue
 
-        targets.append((mention_token, recipient_name))
+        targets.append((mention_token, recipient_name, task_request_text))
         seen_recipients.add(recipient_name)
 
     return targets
@@ -470,11 +476,9 @@ def _extract_local_after_window(
 
 def _build_mention_offer_title(
     actor_name: str,
-    public_text: str,
-    mention_token: str,
+    task_request_text: str,
 ) -> str:
-    cleaned = _MENTION_REFERENCE_RE.sub("", public_text, count=1)
-    cleaned = _normalize_space(cleaned).strip(" -:,.\t")
+    cleaned = _normalize_space(task_request_text).strip(" -:,.\t")
     if not cleaned:
         cleaned = f"Public request from {actor_name}"
     elif cleaned.lower().startswith(_GENERIC_REQUEST_PREFIXES):
@@ -490,6 +494,45 @@ def _build_snippet(text: str, limit: int = 220) -> str:
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[: limit - 3].rstrip()}..."
+
+
+def _derive_mention_task_request(
+    public_text: str,
+    match: re.Match[str],
+    matches: list[re.Match[str]],
+) -> str:
+    request_text = _extract_local_after_window(public_text, match, matches)
+    request_text = _normalize_space(request_text).strip(" -:,.\t")
+
+    if not request_text:
+        fallback = _MENTION_REFERENCE_RE.sub("", public_text)
+        request_text = _normalize_space(fallback).strip(" -:,.\t")
+
+    request_text = _strip_request_leadin(request_text)
+    if not request_text:
+        return ""
+
+    if len(request_text) > 320:
+        request_text = f"{request_text[:317].rstrip()}..."
+
+    return request_text
+
+
+def _strip_request_leadin(text: str) -> str:
+    cleaned = _normalize_space(text).strip(" -:,.\t")
+    if not cleaned:
+        return ""
+
+    leadin_patterns = (
+        r"^(?:can|could|would|will)\s+you\s+",
+        r"^please\s+",
+        r"^(?:i|we)\s+need\s+you\s+to\s+",
+        r"^need\s+you\s+to\s+",
+    )
+    for pattern in leadin_patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+    return cleaned.strip(" -:,.\t")
 
 
 def _build_chat_context(

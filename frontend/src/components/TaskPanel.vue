@@ -67,7 +67,7 @@
                 <div class="tp-task-summary">{{ taskSummaryText(task) }}</div>
 
                 <div
-                  v-if="task.deliverable_metadata?.deliverable_type || task.deliverable_metadata?.acceptance_criteria?.length || task.deliverable_metadata?.suggested_tools?.length || task.deliverable_metadata?.tool_plan || task.latest_status_note || latestChatSnippet(task)"
+                  v-if="hasTaskDetails(task)"
                   class="tp-task-details"
                 >
                   <div v-if="task.deliverable_metadata?.deliverable_type" class="tp-detail-line">
@@ -75,19 +75,19 @@
                     <span>{{ formatDeliverableLabel(task.deliverable_metadata.deliverable_type) }}</span>
                   </div>
 
-                  <div v-if="task.deliverable_metadata?.acceptance_criteria?.length" class="tp-detail-block">
+                  <div v-if="visibleAcceptanceCriteria(task).length" class="tp-detail-block">
                     <span class="tp-detail-label">Acceptance</span>
                     <ul class="tp-detail-list">
-                      <li v-for="criterion in task.deliverable_metadata.acceptance_criteria" :key="criterion">
+                      <li v-for="criterion in visibleAcceptanceCriteria(task)" :key="criterion">
                         {{ criterion }}
                       </li>
                     </ul>
                   </div>
 
-                  <div v-if="task.deliverable_metadata?.suggested_tools?.length" class="tp-detail-block">
+                  <div v-if="visibleSuggestedTools(task).length" class="tp-detail-block">
                     <span class="tp-detail-label">Suggested tools</span>
                     <div class="tp-chip-row">
-                      <span v-for="toolName in task.deliverable_metadata.suggested_tools" :key="toolName" class="tp-chip">
+                      <span v-for="toolName in visibleSuggestedTools(task)" :key="toolName" class="tp-chip">
                         {{ toolName }}
                       </span>
                     </div>
@@ -181,6 +181,72 @@ const artifactPanelTaskId = ref('')
 
 let pollTimer = null
 const statusRank = new Map(statusOrder.map((status, index) => [status, index]))
+const genericAcceptanceDefaults = [
+  'Produce a concrete deliverable using the current simulation context and available MCP tools.',
+  'Do not rely on off-screen meetings or private conversations to finish the work.',
+  'If the output is file-like, save it with save_task_artifact before completing the task.'
+]
+const genericSuggestedToolDefaults = ['update_task_status', 'save_task_artifact', 'complete_task']
+
+const normalizeDetailToken = (value) => {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+const dedupeTextValues = (values) => {
+  const unique = []
+  const seen = new Set()
+
+  for (const value of Array.isArray(values) ? values : []) {
+    const text = String(value || '').trim()
+    if (!text) {
+      continue
+    }
+    const key = normalizeDetailToken(text)
+    if (!key || seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    unique.push(text)
+  }
+
+  return unique
+}
+
+const visibleAcceptanceCriteria = (task) => {
+  const deduped = dedupeTextValues(task?.deliverable_metadata?.acceptance_criteria)
+  if (!deduped.length) {
+    return []
+  }
+
+  const genericDefaults = new Set(genericAcceptanceDefaults.map(normalizeDetailToken))
+  const specific = deduped.filter((criterion) => !genericDefaults.has(normalizeDetailToken(criterion)))
+  return specific.length ? specific : []
+}
+
+const visibleSuggestedTools = (task) => {
+  const deduped = dedupeTextValues(task?.deliverable_metadata?.suggested_tools)
+  if (!deduped.length) {
+    return []
+  }
+
+  const genericDefaults = new Set(genericSuggestedToolDefaults.map(normalizeDetailToken))
+  const specific = deduped.filter((toolName) => !genericDefaults.has(normalizeDetailToken(toolName)))
+  return specific.length ? specific : []
+}
+
+const hasTaskDetails = (task) => {
+  return Boolean(
+    task?.deliverable_metadata?.deliverable_type ||
+    visibleAcceptanceCriteria(task).length ||
+    visibleSuggestedTools(task).length ||
+    task?.deliverable_metadata?.tool_plan ||
+    task?.latest_status_note ||
+    latestChatSnippet(task)
+  )
+}
 
 const statusLabel = (status) => {
   const labels = {
@@ -198,12 +264,38 @@ const statusLabel = (status) => {
 const taskSummaryText = (task) => {
   const title = String(task?.title || '').trim()
   const description = String(task?.description || '').trim()
+  const deliverableType = String(task?.deliverable_metadata?.deliverable_type || '').trim()
+  const deliverableLabel = deliverableType ? formatDeliverableLabel(deliverableType) : ''
 
-  if (title && description && title.toLowerCase() !== description.toLowerCase()) {
-    return `${title}: ${description}`
+  const normalizedTitle = title.toLowerCase()
+  const normalizedDescription = description.toLowerCase()
+  const instructionText = description && normalizedDescription !== normalizedTitle
+    ? description
+    : ''
+
+  const summaryParts = []
+  if (title) {
+    summaryParts.push(title)
+  } else if (instructionText) {
+    summaryParts.push(instructionText)
   }
 
-  return title || description || 'No task description provided.'
+  if (instructionText) {
+    const conciseInstruction = instructionText.length > 140
+      ? `${instructionText.slice(0, 137).trimEnd()}...`
+      : instructionText
+    summaryParts.push(conciseInstruction)
+  }
+
+  if (deliverableLabel) {
+    summaryParts.push(`Deliverable: ${deliverableLabel}`)
+  }
+
+  if (summaryParts.length > 0) {
+    return summaryParts.join(' · ')
+  }
+
+  return 'No task description provided.'
 }
 
 const formatDeliverableLabel = (value) => {
