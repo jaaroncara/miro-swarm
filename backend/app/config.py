@@ -120,6 +120,7 @@ class Config:
     OASIS_DEFAULT_MAX_ROUNDS = int(os.environ.get("OASIS_DEFAULT_MAX_ROUNDS", "10"))
     OASIS_SIMULATION_DATA_DIR = os.path.join(UPLOAD_FOLDER, "simulations")
     ALLOW_BROWSER_TASK_MUTATIONS = _get_bool_env("ALLOW_BROWSER_TASK_MUTATIONS", False)
+    TASK_EXECUTION_MODE = _get_env_or_default("TASK_EXECUTION_MODE", "compatibility")
 
     # OASIS platform available actions
     OASIS_TWITTER_ACTIONS = [
@@ -174,6 +175,22 @@ class Config:
     ]
     MCP_TOOL_CALL_TIMEOUT = int(os.environ.get("MCP_TOOL_CALL_TIMEOUT", "30"))
     MCP_MAX_TOOL_ROUNDS = int(os.environ.get("MCP_MAX_TOOL_ROUNDS", "3"))
+
+    @classmethod
+    def task_execution_mode(cls) -> str:
+        raw_mode = str(getattr(cls, "TASK_EXECUTION_MODE", "compatibility") or "")
+        normalized = raw_mode.strip().lower().replace("-", "_")
+        if normalized in {"compatibility", "mcp_only", "required_mcp"}:
+            return normalized
+        return "compatibility"
+
+    @classmethod
+    def task_xml_compat_enabled(cls) -> bool:
+        return cls.task_execution_mode() == "compatibility"
+
+    @classmethod
+    def task_mcp_required(cls) -> bool:
+        return cls.task_execution_mode() == "required_mcp"
 
     @classmethod
     def validate(cls):

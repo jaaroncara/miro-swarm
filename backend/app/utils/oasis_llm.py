@@ -46,6 +46,14 @@ TASK_MCP_TOOL_ORDER = (
 )
 TASK_MCP_TOOL_NAMES = set(TASK_MCP_TOOL_ORDER)
 
+_TASK_XML_COMPAT_NOTE = ""
+if Config.task_xml_compat_enabled():
+    _TASK_XML_COMPAT_NOTE = (
+        "- XML `<task_action>` blocks are legacy compatibility only. "
+        "Use them only if task MCP tools are unavailable in the current run.\n\n"
+        f"{TASK_ACTION_GRAMMAR}"
+    )
+
 TASK_COORDINATION_SYSTEM_ADDENDUM = f"""
 # TASK COORDINATION
 - Use task MCP tools as the primary coordination path whenever they are available.
@@ -60,9 +68,8 @@ TASK_COORDINATION_SYSTEM_ADDENDUM = f"""
 - After you accept, decline, start, update, block, or complete a task, leave a visible public update in the simulation chat so other agents can follow the lifecycle and see the result.
 - Typical file-output sequence: call `save_task_artifact` with the file content, then call `complete_task` with a short summary such as "Saved rollout-brief.md with the final recommendation set."
 - The active simulation ID and your actor identity are injected automatically for task MCP tools. Do not provide them yourself.
-- XML `<task_action>` blocks are legacy compatibility only. Use them only if task MCP tools are unavailable in the current run.
 
-{TASK_ACTION_GRAMMAR}
+{_TASK_XML_COMPAT_NOTE}
 """.strip()
 
 

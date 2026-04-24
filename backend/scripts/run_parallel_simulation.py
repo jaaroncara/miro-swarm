@@ -171,6 +171,7 @@ def init_logging_for_simulation(simulation_dir: str):
 
 
 from action_logger import SimulationLogManager, PlatformActionLogger
+from app.config import Config
 from app.utils.oasis_llm import create_oasis_model, get_oasis_semaphore
 from app.core.simulation_task_store import get_simulation_task_store as _get_task_store
 from app.core.task_context_injector import (
@@ -1749,9 +1750,11 @@ async def run_reddit_simulation(
 async def _maybe_start_mcp(log_manager):
     """Start the MCP tool server if MCP_SERVER_ENABLED=true."""
     try:
-        from app.config import Config
-
         if not Config.MCP_SERVER_ENABLED:
+            if Config.task_mcp_required():
+                raise RuntimeError(
+                    "TASK_EXECUTION_MODE=required_mcp but MCP_SERVER_ENABLED=false"
+                )
             return
         from app.utils.mcp_manager import get_mcp_manager
 
@@ -1759,6 +1762,8 @@ async def _maybe_start_mcp(log_manager):
         tool_names = [t.name for t in mgr.get_tools()]
         log_manager.info(f"MCP server connected — tools: {tool_names}")
     except Exception as exc:
+        if Config.task_mcp_required():
+            raise
         log_manager.info(
             f"MCP server startup failed (simulation will proceed without MCP tools): {exc}"
         )
@@ -1840,6 +1845,7 @@ async def main():
                 f"  - Actual execution rounds: {args.max_rounds} (truncated)"
             )
     log_manager.info(f"  - Agent count: {len(config.get('agent_configs', []))}")
+    log_manager.info(f"  - Task execution mode: {Config.task_execution_mode()}")
 
     log_manager.info("Log structure:")
     log_manager.info(f"  - Main log: simulation.log")

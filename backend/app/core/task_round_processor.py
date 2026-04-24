@@ -8,6 +8,7 @@ import re
 import sqlite3
 from typing import Any, Optional
 
+from ..config import Config
 from .simulation_task_store import TERMINAL_TASK_STATUSES
 from .task_observability import log_task_pipeline_metric
 from .task_action_parser import apply_task_action, parse_task_action, strip_task_action
@@ -117,6 +118,7 @@ def process_task_actions_for_round(
 ) -> set[tuple[str, str]]:
     """Apply XML task actions and derive mention-based offers for one round."""
     lifecycle = TaskLifecycleService(simulation_id=simulation_id, store=store)
+    xml_compat_enabled = Config.task_xml_compat_enabled()
     normalized_platform = (platform or "unknown").strip().lower() or "unknown"
     round_offer_pairs = set(structured_offer_pairs or set())
 
@@ -134,7 +136,18 @@ def process_task_actions_for_round(
             public_text=public_text,
             round_index=round_index,
         )
-        parsed = parse_task_action(content)
+        parsed_candidate = parse_task_action(content)
+        parsed = parsed_candidate if xml_compat_enabled else None
+        if parsed_candidate is not None and not xml_compat_enabled:
+            log_task_pipeline_metric(
+                "compat_path_blocked",
+                simulation_id=simulation_id,
+                source="xml_compat",
+                action_type=parsed_candidate.action_type,
+                actor=actor_name,
+                platform=normalized_platform,
+                reason="task_execution_mode_disables_xml_compat",
+            )
         linked_task_refs: set[str] = set()
 
         if parsed is not None:

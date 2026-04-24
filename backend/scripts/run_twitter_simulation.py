@@ -64,6 +64,24 @@ from app.core.task_round_processor import (
 )
 
 
+async def _maybe_start_mcp() -> None:
+    """Start MCP server when enabled; fail fast when required by task mode."""
+    from app.config import Config
+
+    if not Config.MCP_SERVER_ENABLED:
+        if Config.task_mcp_required():
+            raise RuntimeError(
+                "TASK_EXECUTION_MODE=required_mcp but MCP_SERVER_ENABLED=false"
+            )
+        return
+
+    from app.utils.mcp_manager import get_mcp_manager
+
+    manager = await get_mcp_manager()
+    tool_names = [tool.name for tool in manager.get_tools()]
+    print(f"MCP server connected — tools: {tool_names}")
+
+
 class UnicodeFormatter(logging.Formatter):
     """Custom formatter that converts Unicode escape sequences to readable characters"""
 
@@ -657,6 +675,11 @@ class TwitterSimulationRunner:
         if max_rounds:
             print(f"  - Max rounds limit: {max_rounds}")
         print(f"  - Agent count: {len(self.config.get('agent_configs', []))}")
+        from app.config import Config
+
+        print(f"  - Task execution mode: {Config.task_execution_mode()}")
+
+        await _maybe_start_mcp()
 
         # Create model
         print("\nInitializing LLM model...")

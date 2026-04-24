@@ -1,5 +1,6 @@
 import base64
 import copy
+import importlib.util
 import json
 import logging
 import sys
@@ -1079,6 +1080,91 @@ def test_phase_three_task_context_includes_pending_offers(simulation_root: Path)
     assert offered.issue_key in context_message
     assert "accept or decline" in context_message.lower()
     assert "@Bob can you take the first pass on this?" in context_message
+
+
+def test_parallel_runner_config_symbol_available_for_startup_logging():
+    script_path = (
+        Path(__file__).resolve().parents[1] / "scripts" / "run_parallel_simulation.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "run_parallel_simulation_for_test", script_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    # `main()` logs Config.task_execution_mode(); this symbol must exist at module scope.
+    assert hasattr(module, "Config")
+    assert module.Config.task_execution_mode() in {
+        "compatibility",
+        "mcp_only",
+        "required_mcp",
+    }
+
+
+def test_mcp_only_mode_blocks_xml_task_action_mutations(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    offered = lifecycle.offer_task(
+        title="Review dispatch",
+        description="Please take this task.",
+        assigned_to="Bob",
+        actor="Alice",
+    )
+
+    monkeypatch.setattr(Config, "TASK_EXECUTION_MODE", "mcp_only")
+
+    process_task_actions_for_round(
+        actual_actions=[
+            {
+                "agent_name": "Bob",
+                "action_type": "create_post",
+                "action_args": {
+                    "content": (
+                        '<task_action type="update_status">'
+                        f"<issue_key>{offered.issue_key}</issue_key>"
+                        "<status>open</status>"
+                        "<reason>Taking it</reason>"
+                        "</task_action>"
+                    )
+                },
+            }
+        ],
+        simulation_id="sim_test",
+        store=store,
+        platform="twitter",
+        round_index=1,
+        total_rounds=3,
+        mention_aliases={},
+        structured_offer_pairs=set(),
+    )
+
+    persisted = store.get_task(offered.issue_key)
+    assert persisted is not None
+    assert persisted.status == "offered"
+
+
+def test_task_context_message_is_mcp_only_without_xml_fallback(simulation_root: Path):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    lifecycle.offer_task(
+        title="Prepare draft",
+        description="Publish a short draft.",
+        assigned_to="Bob",
+        actor="Alice",
+    )
+
+    context_message = build_task_context_message("Bob", store)
+    assert context_message is not None
+    assert "XML fallback" not in context_message
+    assert "<task_action" not in context_message
 
 
 def test_phase_four_lifecycle_defaults_round_metadata_from_run_state(

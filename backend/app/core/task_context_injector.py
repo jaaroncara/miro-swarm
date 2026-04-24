@@ -109,12 +109,11 @@ def build_task_context_message(
             "Priority order this round: resolve pending offers first, then progress accepted work, then escalate blocked work before the run ends.",
             "For each task below you MUST create a post or reply that:",
             "  1. Directly addresses the person who assigned the task (tag them by name).",
-            "  2. Uses MCP task tools first when they are available in this run.",
-            "  3. Falls back to a matching <task_action> XML block only if MCP task tools are unavailable.",
-            "  4. Keeps the work executable inside the simulation. If a request is really a meeting or conversation, decline it or rewrite it into a concrete deliverable.",
-            "  5. If the deliverable is file-like, such as a markdown brief, memo, CSV, JSON, code/config, or PDF, save it with `save_task_artifact` first using a clear filename and media type.",
-            "  6. After you accept, decline, update, block, or complete a task, leave a visible public update in the simulation chat so other agents can follow the work.",
-            "  7. When you publish a final report or deliverable, store that same content in the task completion output, or summarize the saved artifact when you complete the task.",
+            "  2. Uses MCP task tools for all task lifecycle updates in this run.",
+            "  3. Keeps the work executable inside the simulation. If a request is really a meeting or conversation, decline it or rewrite it into a concrete deliverable.",
+            "  4. If the deliverable is file-like, such as a markdown brief, memo, CSV, JSON, code/config, or PDF, save it with `save_task_artifact` first using a clear filename and media type.",
+            "  5. After you accept, decline, update, block, or complete a task, leave a visible public update in the simulation chat so other agents can follow the work.",
+            "  6. When you publish a final report or deliverable, store that same content in the task completion output, or summarize the saved artifact when you complete the task.",
             "Do NOT post about any other topic until you have responded to every task listed here.",
             "",
         ]
@@ -172,47 +171,16 @@ def build_task_context_message(
                 f"  ACTION REQUIRED: Decide whether to accept or decline this offer before you do other work. "
                 f"Prefer MCP `accept_task` or `decline_task` with issue_key {issue_key}, then acknowledge the decision publicly in chat."
             )
-            lines.append(
-                f"  XML fallback if MCP task tools are unavailable:\n"
-                f'  <task_action type="update_status">\n'
-                f"    <issue_key>{issue_key}</issue_key>\n"
-                f"    <status>open</status>\n"
-                f"    <reason>Short acknowledgment or plan</reason>\n"
-                f"  </task_action>\n"
-                f"  OR decline it with:\n"
-                f'  <task_action type="update_status">\n'
-                f"    <issue_key>{issue_key}</issue_key>\n"
-                f"    <status>declined</status>\n"
-                f"    <reason>Why you cannot take this on</reason>\n"
-                f"  </task_action>"
-            )
         elif task.status == "open":
             lines.append(
                 f"  ACTION REQUIRED: Reply to {assigner} acknowledging this task and "
                 f"either start working on it or complete it immediately if you can. "
                 f"Prefer MCP `start_task`, `update_task_status`, or `complete_task`. If the finished deliverable is file-like, save it with `save_task_artifact` before `complete_task`, using a descriptive filename such as `brief.md` or `results.json`."
             )
-            lines.append(
-                f"  XML fallback if MCP task tools are unavailable:\n"
-                f'  <task_action type="update_status">\n'
-                f"    <issue_key>{issue_key}</issue_key>\n"
-                f"    <status>in_progress</status>\n"
-                f"    <reason>Brief description of your plan</reason>\n"
-                f"  </task_action>\n"
-                f"  OR, if you can complete it now:\n"
-                f'  <task_action type="complete">\n'
-                f"    <issue_key>{issue_key}</issue_key>\n"
-                f"    <output>Your complete response / result</output>\n"
-                f"  </task_action>"
-            )
         elif task.status == "in_progress":
             lines.append(
                 f"  ACTION REQUIRED: Post an update to {assigner} on the progress of "
                 f"this task, or complete it if the work is done. Prefer MCP `update_task_status` for progress notes and `complete_task` when possible. If the deliverable is a file, save it with `save_task_artifact` first and then mention the saved filename in the completion summary."
-            )
-            lines.append(
-                f"  XML fallback if MCP task tools are unavailable: end your post with a "
-                f'<task_action type="complete"> or <task_action type="update_status"> block using issue_key {issue_key}.'
             )
         else:
             lines.append(
@@ -220,7 +188,7 @@ def build_task_context_message(
                 f"what you need, and whether the task should be re-scoped before the run ends."
             )
             lines.append(
-                "  A plain reply is enough here; only use MCP/XML task actions if the task status is changing again."
+                "  A plain reply is enough here; only use MCP task actions if the task status is changing again."
             )
 
         lines.append("")
