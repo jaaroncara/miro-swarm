@@ -11,13 +11,18 @@ from typing import Any, Optional
 from .simulation_task_store import TERMINAL_TASK_STATUSES
 from .task_observability import log_task_pipeline_metric
 from .task_action_parser import apply_task_action, parse_task_action, strip_task_action
-from .task_lifecycle import TaskLifecycleError, TaskLifecycleService
+from .task_lifecycle import (
+    TaskLifecycleError,
+    TaskLifecycleService,
+    prepare_task_request_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
 _GENERIC_MENTION_TOKENS = {"all", "everyone", "everybody", "team"}
 _MENTION_TOKEN_RE = re.compile(r"(?<!\w)@(?P<handle>[A-Za-z0-9_][A-Za-z0-9_.-]{0,63})")
 _MENTION_REFERENCE_RE = re.compile(r"@[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}")
+_ISSUE_KEY_REFERENCE_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,9}-[1-9]\d*\b")
 _REQUEST_ANYWHERE_PATTERNS = (
     re.compile(r"\b(?:can|could|would|will)\s+you\b", re.IGNORECASE),
     re.compile(r"\bplease\b", re.IGNORECASE),
@@ -122,7 +127,15 @@ def process_task_actions_for_round(
 
         actor_name = str(action_data.get("agent_name") or "unknown")
         public_text = _normalize_space(strip_task_action(content)) or None
+        chat_context = _build_chat_context(
+            action_data=action_data,
+            actor_name=actor_name,
+            platform=normalized_platform,
+            public_text=public_text,
+            round_index=round_index,
+        )
         parsed = parse_task_action(content)
+        linked_task_refs: set[str] = set()
 
         if parsed is not None:
             task_id = apply_task_action(
@@ -131,6 +144,7 @@ def process_task_actions_for_round(
                 simulation_id=simulation_id,
                 store=store,
                 published_text=public_text,
+                chat_context=chat_context,
                 round_index=round_index,
                 total_rounds=total_rounds,
             )
@@ -138,6 +152,11 @@ def process_task_actions_for_round(
                 task = store.get_task(task_id)
                 if task is not None and task.assigned_by and task.assigned_to:
                     round_offer_pairs.add((task.assigned_by, task.assigned_to))
+                    linked_task_refs.add(task.issue_key)
+            elif parsed.task_ref:
+                task = store.get_task(parsed.task_ref)
+                if task is not None:
+                    linked_task_refs.add(task.issue_key)
 
         if parsed is not None and parsed.action_type == "create":
             continue
@@ -183,10 +202,36 @@ def process_task_actions_for_round(
                 origin_metadata["comment_id"] = action_args["comment_id"]
 
             try:
+                title = _build_mention_offer_title(
+                    actor_name, public_text, mention_token
+                )
+                task_request_metadata = prepare_task_request_metadata(
+                    title=title,
+                    description=public_text,
+                )
+            except TaskLifecycleError as exc:
+                _queue_non_executable_offer_notification(
+                    store=store,
+                    recipient_name=recipient_name,
+                    actor_name=actor_name,
+                    public_text=public_text,
+                    mention_context=mention_context,
+                    round_index=round_index,
+                )
+                log_task_pipeline_metric(
+                    "non_executable_offer_detected",
+                    simulation_id=simulation_id,
+                    actor=actor_name,
+                    recipient=recipient_name,
+                    platform=normalized_platform,
+                    reason=str(exc),
+                    snippet=mention_context.get("snippet"),
+                )
+                continue
+
+            try:
                 task = lifecycle.offer_task(
-                    title=_build_mention_offer_title(
-                        actor_name, public_text, mention_token
-                    ),
+                    title=title,
                     description=public_text,
                     assigned_to=recipient_name,
                     actor=actor_name,
@@ -200,6 +245,11 @@ def process_task_actions_for_round(
                         if round_index is not None and total_rounds is not None
                         else None
                     ),
+                    deliverable_type=task_request_metadata["deliverable_type"],
+                    acceptance_criteria=task_request_metadata["acceptance_criteria"],
+                    suggested_tools=task_request_metadata["suggested_tools"],
+                    tool_plan=task_request_metadata["tool_plan"],
+                    chat_refs=[chat_context] if chat_context else None,
                 )
             except TaskLifecycleError as exc:
                 logger.info(
@@ -227,6 +277,29 @@ def process_task_actions_for_round(
                 recipient_name,
             )
             round_offer_pairs.add(pair)
+            linked_task_refs.add(task.issue_key)
+
+        if public_text:
+            for issue_key in _extract_public_task_refs(public_text):
+                if issue_key in linked_task_refs:
+                    continue
+
+                task = store.get_task(issue_key)
+                if task is None:
+                    continue
+                if actor_name not in {task.assigned_by, task.assigned_to}:
+                    continue
+
+                store.transition_task(
+                    issue_key,
+                    actor=actor_name,
+                    note=public_text,
+                    event_type="public_update",
+                    event_details={"summary": public_text},
+                    chat_refs=[chat_context] if chat_context else None,
+                    round_index=round_index,
+                )
+                linked_task_refs.add(issue_key)
 
     return round_offer_pairs
 
@@ -417,6 +490,77 @@ def _build_snippet(text: str, limit: int = 220) -> str:
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[: limit - 3].rstrip()}..."
+
+
+def _build_chat_context(
+    *,
+    action_data: dict[str, Any],
+    actor_name: str,
+    platform: str,
+    public_text: Optional[str],
+    round_index: Optional[int],
+) -> Optional[dict[str, Any]]:
+    if not public_text:
+        return None
+
+    action_args = action_data.get("action_args") or {}
+    return {
+        "platform": platform,
+        "action_type": action_data.get("action_type"),
+        "actor": actor_name,
+        "trace_rowid": action_data.get("trace_rowid"),
+        "post_id": action_args.get("post_id"),
+        "comment_id": action_args.get("comment_id"),
+        "snippet": _build_snippet(public_text),
+        "round_index": round_index,
+        "metadata": {
+            "source_action_type": action_data.get("action_type"),
+        },
+    }
+
+
+def _extract_public_task_refs(text: str) -> list[str]:
+    issue_keys: list[str] = []
+    seen: set[str] = set()
+    for match in _ISSUE_KEY_REFERENCE_RE.finditer(text or ""):
+        issue_key = match.group(0)
+        if issue_key in seen:
+            continue
+        issue_keys.append(issue_key)
+        seen.add(issue_key)
+    return issue_keys
+
+
+def _queue_non_executable_offer_notification(
+    *,
+    store: Any,
+    recipient_name: str,
+    actor_name: str,
+    public_text: str,
+    mention_context: dict[str, Any],
+    round_index: Optional[int],
+) -> None:
+    queue_notification = getattr(store, "queue_notification", None)
+    if not callable(queue_notification):
+        return
+
+    snippet = mention_context.get("snippet") or _build_snippet(public_text)
+    queue_notification(
+        recipient=recipient_name,
+        message=(
+            f"[Task Rewrite Needed] {actor_name} asked you for work that sounds like off-screen coordination rather than an executable deliverable.\n"
+            f"Public context: {snippet}\n"
+            "Reply in public by declining it or rewriting it into a concrete brief, memo, analysis, summary, comparison, or report section."
+        ),
+        category="task_rewrite_needed",
+        created_by=actor_name,
+        event_type="rewrite_requested",
+        round_index=round_index,
+        metadata={
+            "mention_context": dict(mention_context),
+            "public_text": public_text,
+        },
+    )
 
 
 def _normalize_space(text: str) -> str:

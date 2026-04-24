@@ -527,6 +527,12 @@ def _serialize_task_artifact(simulation_id: str, task_ref: str, artifact) -> dic
     return payload
 
 
+def _serialize_task_chat_ref(chat_ref) -> dict:
+    if hasattr(chat_ref, "__dict__"):
+        return dict(chat_ref.__dict__)
+    return dict(chat_ref)
+
+
 def _build_task_deadline_payload(task, current_round: int | None) -> dict:
     due_round = getattr(task, "due_round", None)
     remaining_rounds = None
@@ -552,13 +558,19 @@ def _serialize_task_event(simulation_id: str, task, event) -> dict:
         "task_status": task.status,
         "assigned_by": task.assigned_by,
         "assigned_to": task.assigned_to,
-        "platform": (task.origin_metadata or {}).get("platform"),
+        "platform": (
+            (event.chat_refs[0].platform if getattr(event, "chat_refs", None) else None)
+            or (task.origin_metadata or {}).get("platform")
+        ),
         "event_id": event.event_id,
         "event_type": event.event_type,
         "timestamp": event.created_at,
         "round_num": event.round_index,
         "actor": event.actor,
         "details": event.details,
+        "chat_refs": [
+            _serialize_task_chat_ref(chat_ref) for chat_ref in event.chat_refs or []
+        ],
         "artifact_summaries": [
             _serialize_task_artifact(simulation_id, task.issue_key, artifact)
             for artifact in event.artifact_refs or []
@@ -585,6 +597,26 @@ def _build_merged_activity_feed(actions: list, task_events: list[dict]) -> list[
     return merged
 
 
+def _build_task_latest_status_note(task) -> str | None:
+    events = getattr(task, "events", []) or []
+    for event in reversed(events):
+        details = getattr(event, "details", {}) or {}
+        for key in ("summary", "note", "output", "reason", "message"):
+            value = details.get(key)
+            if value:
+                return value
+    return None
+
+
+def _build_task_deliverable_payload(task) -> dict:
+    return {
+        "deliverable_type": getattr(task, "deliverable_type", None),
+        "acceptance_criteria": list(getattr(task, "acceptance_criteria", []) or []),
+        "suggested_tools": list(getattr(task, "suggested_tools", []) or []),
+        "tool_plan": getattr(task, "tool_plan", None),
+    }
+
+
 def _serialize_simulation_task(task, *, simulation_id: str, current_round: int | None):
     payload = task.to_dict()
     events = payload.get("events") or []
@@ -598,6 +630,12 @@ def _serialize_simulation_task(task, *, simulation_id: str, current_round: int |
         _serialize_task_artifact(simulation_id, task.issue_key, artifact)
         for artifact in getattr(task, "artifact_refs", []) or []
     ]
+    payload["chat_refs"] = [
+        _serialize_task_chat_ref(chat_ref)
+        for chat_ref in getattr(task, "chat_refs", []) or []
+    ]
+    payload["deliverable_metadata"] = _build_task_deliverable_payload(task)
+    payload["latest_status_note"] = _build_task_latest_status_note(task)
     payload["offer_pending"] = task.status == "offered"
     payload["participants"] = {
         "assigned_by": task.assigned_by,
@@ -771,6 +809,10 @@ def create_simulation_task(simulation_id: str):
             assigned_by=data.get("assigned_by"),
             parent_goal=data.get("parent_goal"),
             actor=_get_task_actor(data),
+            deliverable_type=data.get("deliverable_type"),
+            acceptance_criteria=data.get("acceptance_criteria"),
+            suggested_tools=data.get("suggested_tools"),
+            tool_plan=data.get("tool_plan"),
         )
 
         return (
@@ -979,6 +1021,43 @@ def block_simulation_task(simulation_id: str, task_ref: str):
 
     except Exception as e:
         logger.error(f"Failed to block simulation task: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@simulation_bp.route("/<simulation_id>/tasks/<task_ref>/status", methods=["POST"])
+def update_simulation_task_status(simulation_id: str, task_ref: str):
+    """Record a generic task status update or progress note."""
+    try:
+        data = request.get_json(silent=True) or {}
+        lifecycle = TaskLifecycleService(simulation_id=simulation_id)
+        task = lifecycle.update_task_status(
+            task_ref=task_ref,
+            actor=_get_task_actor(data),
+            status=str(data.get("status") or ""),
+            reason=str(data.get("reason") or ""),
+            output=str(data.get("output") or "") or None,
+            round_index=_get_run_state_current_round(simulation_id),
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "simulation_id": simulation_id,
+                    "task": _serialize_simulation_task(
+                        task,
+                        simulation_id=simulation_id,
+                        current_round=_get_run_state_current_round(simulation_id),
+                    ),
+                },
+            }
+        )
+
+    except (TaskAuthorizationError, TaskLifecycleError) as exc:
+        return _task_error_response(exc)
+
+    except Exception as e:
+        logger.error(f"Failed to update simulation task status: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

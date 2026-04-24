@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from .simulation_task_store import (
@@ -27,6 +28,223 @@ class TaskLifecycleError(ValueError):
 
 class TaskAuthorizationError(PermissionError):
     """Raised when an actor attempts to mutate a task they do not own."""
+
+
+_MEETING_ONLY_PATTERNS = (
+    re.compile(
+        r"\b(?:set\s*up|schedule|arrange|book|organize|coordinate)\s+(?:a\s+)?(?:meeting|sync|call|discussion|touch\s*base|1:1|one[- ]on[- ]one)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bmeet\s+with\b", re.IGNORECASE),
+    re.compile(r"\b(?:talk|speak)\s+to\b", re.IGNORECASE),
+)
+_DELIVERABLE_TYPE_PATTERNS = (
+    ("research_brief", ("research", "scan", "evidence", "brief", "briefing")),
+    (
+        "analytics_summary",
+        ("analysis", "analytics", "kpi", "metric", "dashboard", "trend", "summary"),
+    ),
+    ("competitor_comparison", ("competitor", "comparison", "compare", "benchmark")),
+    ("risk_memo", ("risk", "assessment", "mitigation")),
+    ("report_section", ("report", "section", "draft", "narrative")),
+    ("review_notes", ("review", "feedback", "notes", "annotate")),
+)
+_DATA_TOOL_KEYWORDS = {
+    "kpi",
+    "metric",
+    "metrics",
+    "data",
+    "analytics",
+    "analysis",
+    "trend",
+    "summary",
+}
+_NEWS_TOOL_KEYWORDS = {
+    "market",
+    "competitor",
+    "competitors",
+    "industry",
+    "launch",
+    "news",
+    "research",
+}
+_WEB_TOOL_KEYWORDS = {
+    "web",
+    "website",
+    "benchmark",
+    "scan",
+    "compare",
+    "comparison",
+    "evidence",
+}
+
+
+def _normalize_text(value: Any) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _split_list_text(value: Any, *, split_commas: bool = False) -> list[str]:
+    if value in (None, ""):
+        return []
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        separators = r"(?:\r?\n|;)"
+        if split_commas:
+            separators = r"(?:\r?\n|;|,)"
+        parts = re.split(separators, stripped)
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for part in parts:
+            cleaned = part.strip().lstrip("-*• ").strip()
+            if not cleaned or cleaned in seen:
+                continue
+            normalized.append(cleaned)
+            seen.add(cleaned)
+        return normalized
+
+    if isinstance(value, (list, tuple, set)):
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            cleaned = _normalize_text(item)
+            if not cleaned or cleaned in seen:
+                continue
+            normalized.append(cleaned)
+            seen.add(cleaned)
+        return normalized
+
+    cleaned = _normalize_text(value)
+    return [cleaned] if cleaned else []
+
+
+def _infer_deliverable_type(title: str, description: str) -> str:
+    haystack = f"{title} {description}".lower()
+    for deliverable_type, keywords in _DELIVERABLE_TYPE_PATTERNS:
+        if any(keyword in haystack for keyword in keywords):
+            return deliverable_type
+    return "written_update"
+
+
+def _has_deliverable_hint(text: str) -> bool:
+    lowered = (text or "").lower()
+    for _, keywords in _DELIVERABLE_TYPE_PATTERNS:
+        if any(keyword in lowered for keyword in keywords):
+            return True
+    return False
+
+
+def _looks_like_meeting_only_request(
+    title: str, description: str, deliverable_text: str
+) -> bool:
+    haystack = f"{title} {description}".strip()
+    if not haystack:
+        return False
+    if any(pattern.search(haystack) for pattern in _MEETING_ONLY_PATTERNS):
+        return not (deliverable_text.strip() or _has_deliverable_hint(haystack))
+    return False
+
+
+def _infer_acceptance_criteria(deliverable_type: str) -> list[str]:
+    criteria = [
+        "Produce a concrete deliverable using the current simulation context and available MCP tools.",
+        "Do not rely on off-screen meetings or private conversations to finish the work.",
+    ]
+    if deliverable_type in {
+        "research_brief",
+        "analytics_summary",
+        "competitor_comparison",
+        "risk_memo",
+        "report_section",
+        "review_notes",
+        "written_update",
+    }:
+        criteria.append(
+            "If the output is file-like, save it with save_task_artifact before completing the task."
+        )
+    return criteria
+
+
+def _infer_suggested_tools(title: str, description: str) -> list[str]:
+    haystack = f"{title} {description}".lower()
+    suggested_tools = ["update_task_status", "save_task_artifact", "complete_task"]
+    if any(keyword in haystack for keyword in _DATA_TOOL_KEYWORDS):
+        suggested_tools.insert(0, "lookup_business_data")
+    if any(keyword in haystack for keyword in _NEWS_TOOL_KEYWORDS):
+        suggested_tools.append("basic_news_search")
+    if any(keyword in haystack for keyword in _WEB_TOOL_KEYWORDS):
+        suggested_tools.append("basic_web_search")
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for tool_name in suggested_tools:
+        if tool_name in seen:
+            continue
+        deduped.append(tool_name)
+        seen.add(tool_name)
+    return deduped
+
+
+def prepare_task_request_metadata(
+    *,
+    title: str,
+    description: str,
+    deliverable_type: Optional[str] = None,
+    acceptance_criteria: Any = None,
+    suggested_tools: Any = None,
+    tool_plan: Optional[str] = None,
+) -> dict[str, Any]:
+    normalized_title = _normalize_text(title) or ""
+    normalized_description = _normalize_text(description) or ""
+    normalized_deliverable_type = _normalize_text(deliverable_type)
+    normalized_tool_plan = _normalize_text(tool_plan)
+    normalized_acceptance_criteria = _split_list_text(acceptance_criteria)
+    normalized_suggested_tools = _split_list_text(suggested_tools, split_commas=True)
+
+    deliverable_hints = " ".join(
+        item
+        for item in [
+            normalized_deliverable_type,
+            normalized_tool_plan,
+            " ".join(normalized_acceptance_criteria),
+        ]
+        if item
+    )
+
+    if _looks_like_meeting_only_request(
+        normalized_title,
+        normalized_description,
+        deliverable_hints,
+    ):
+        raise TaskLifecycleError(
+            "Meeting-style tasks are not executable inside the simulation. Rewrite the request as a concrete deliverable such as a brief, memo, analysis, summary, or report section."
+        )
+
+    resolved_deliverable_type = normalized_deliverable_type or _infer_deliverable_type(
+        normalized_title,
+        normalized_description,
+    )
+    if not normalized_acceptance_criteria:
+        normalized_acceptance_criteria = _infer_acceptance_criteria(
+            resolved_deliverable_type
+        )
+    if not normalized_suggested_tools:
+        normalized_suggested_tools = _infer_suggested_tools(
+            normalized_title,
+            normalized_description,
+        )
+
+    return {
+        "deliverable_type": resolved_deliverable_type,
+        "acceptance_criteria": normalized_acceptance_criteria,
+        "suggested_tools": normalized_suggested_tools,
+        "tool_plan": normalized_tool_plan,
+    }
 
 
 class TaskLifecycleService:
@@ -67,6 +285,11 @@ class TaskLifecycleService:
         due_round: Optional[int] = None,
         round_budget: Optional[int] = None,
         deadline_at: Optional[str] = None,
+        deliverable_type: Optional[str] = None,
+        acceptance_criteria: Any = None,
+        suggested_tools: Any = None,
+        tool_plan: Optional[str] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         return self._create_task(
             title=title,
@@ -83,6 +306,11 @@ class TaskLifecycleService:
             due_round=due_round,
             round_budget=round_budget,
             deadline_at=deadline_at,
+            deliverable_type=deliverable_type,
+            acceptance_criteria=acceptance_criteria,
+            suggested_tools=suggested_tools,
+            tool_plan=tool_plan,
+            chat_refs=chat_refs,
         )
 
     def offer_task(
@@ -101,6 +329,11 @@ class TaskLifecycleService:
         due_round: Optional[int] = None,
         round_budget: Optional[int] = None,
         deadline_at: Optional[str] = None,
+        deliverable_type: Optional[str] = None,
+        acceptance_criteria: Any = None,
+        suggested_tools: Any = None,
+        tool_plan: Optional[str] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         task = self._create_task(
             title=title,
@@ -117,6 +350,11 @@ class TaskLifecycleService:
             due_round=due_round,
             round_budget=round_budget,
             deadline_at=deadline_at,
+            deliverable_type=deliverable_type,
+            acceptance_criteria=acceptance_criteria,
+            suggested_tools=suggested_tools,
+            tool_plan=tool_plan,
+            chat_refs=chat_refs,
         )
         self._queue_offer_notification(task)
         return task
@@ -127,6 +365,8 @@ class TaskLifecycleService:
         actor: str,
         reason: Optional[str] = None,
         round_index: Optional[int] = None,
+        event_details: Optional[dict[str, Any]] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         task = self._get_required_task(task_ref)
         self._assert_assignee(task, actor)
@@ -141,6 +381,8 @@ class TaskLifecycleService:
             actor=actor,
             note=(reason or "").strip() or None,
             event_type="accepted",
+            event_details=event_details,
+            chat_refs=chat_refs,
             round_index=self._resolve_transition_round_index(round_index),
         )
         if updated is None:
@@ -160,6 +402,8 @@ class TaskLifecycleService:
         actor: str,
         reason: Optional[str] = None,
         round_index: Optional[int] = None,
+        event_details: Optional[dict[str, Any]] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         task = self._get_required_task(task_ref)
         self._assert_assignee(task, actor)
@@ -174,6 +418,8 @@ class TaskLifecycleService:
             actor=actor,
             note=(reason or "").strip() or None,
             event_type="declined",
+            event_details=event_details,
+            chat_refs=chat_refs,
             round_index=self._resolve_transition_round_index(round_index),
         )
         if updated is None:
@@ -193,6 +439,8 @@ class TaskLifecycleService:
         actor: str,
         reason: Optional[str] = None,
         round_index: Optional[int] = None,
+        event_details: Optional[dict[str, Any]] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         task = self._get_required_task(task_ref)
         self._assert_assignee(task, actor)
@@ -213,6 +461,8 @@ class TaskLifecycleService:
             actor=actor,
             note=(reason or "").strip() or None,
             event_type="reopened",
+            event_details=event_details,
+            chat_refs=chat_refs,
             round_index=self._resolve_transition_round_index(round_index),
         )
         if updated is None:
@@ -231,6 +481,8 @@ class TaskLifecycleService:
         actor: str,
         reason: Optional[str] = None,
         round_index: Optional[int] = None,
+        event_details: Optional[dict[str, Any]] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         task = self._get_required_task(task_ref)
         self._assert_assignee(task, actor)
@@ -251,6 +503,8 @@ class TaskLifecycleService:
             actor=actor,
             note=(reason or "").strip() or None,
             event_type="started",
+            event_details=event_details,
+            chat_refs=chat_refs,
             round_index=self._resolve_transition_round_index(round_index),
         )
         if updated is None:
@@ -269,6 +523,8 @@ class TaskLifecycleService:
         actor: str,
         reason: str,
         round_index: Optional[int] = None,
+        event_details: Optional[dict[str, Any]] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         if not reason.strip():
             raise TaskLifecycleError("Blocked transitions require a reason.")
@@ -291,6 +547,8 @@ class TaskLifecycleService:
             actor=actor,
             note=reason.strip(),
             event_type="blocked",
+            event_details=event_details,
+            chat_refs=chat_refs,
             round_index=self._resolve_transition_round_index(round_index),
         )
         if updated is None:
@@ -310,6 +568,8 @@ class TaskLifecycleService:
         actor: str,
         output: str,
         round_index: Optional[int] = None,
+        event_details: Optional[dict[str, Any]] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         task = self._get_required_task(task_ref)
         self._assert_assignee(task, actor)
@@ -332,6 +592,8 @@ class TaskLifecycleService:
             actor=actor,
             output=normalized_output or None,
             event_type="completed",
+            event_details=event_details,
+            chat_refs=chat_refs,
             round_index=self._resolve_transition_round_index(round_index),
         )
         if updated is None:
@@ -351,6 +613,8 @@ class TaskLifecycleService:
         actor: str,
         reason: Optional[str] = None,
         round_index: Optional[int] = None,
+        event_details: Optional[dict[str, Any]] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         task = self._get_required_task(task_ref)
         normalized_actor = actor.strip()
@@ -367,6 +631,8 @@ class TaskLifecycleService:
             actor=normalized_actor,
             note=(reason or "").strip() or None,
             event_type="expired",
+            event_details=event_details,
+            chat_refs=chat_refs,
             round_index=self._resolve_transition_round_index(round_index),
         )
         if updated is None:
@@ -426,22 +692,75 @@ class TaskLifecycleService:
         reason: Optional[str] = None,
         output: Optional[str] = None,
         round_index: Optional[int] = None,
+        event_details: Optional[dict[str, Any]] = None,
+        chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
         normalized_status = status.strip().lower()
+        task = self._get_required_task(task_ref)
+        if normalized_status == task.status:
+            self._assert_assignee(task, actor)
+            if task.status == TASK_STATUS_OFFERED:
+                raise TaskLifecycleError(
+                    "Pending offers must be accepted or declined; they cannot be updated in place."
+                )
+            if task.status in TERMINAL_TASK_STATUSES:
+                raise TaskLifecycleError(
+                    f"Task {task.issue_key} is already terminal and cannot be updated."
+                )
+
+            normalized_reason = (reason or "").strip() or None
+            normalized_output = (output or "").strip() or None
+            if not any(
+                [normalized_reason, normalized_output, event_details, chat_refs]
+            ):
+                raise TaskLifecycleError(
+                    "Status updates without a state change require a note, output, or linked chat context."
+                )
+
+            event_type = (
+                "progress_updated"
+                if task.status in {TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS}
+                else "status_updated"
+            )
+            updated = self.store.transition_task(
+                task_ref,
+                status=task.status,
+                actor=actor,
+                note=normalized_reason,
+                output=normalized_output,
+                event_type=event_type,
+                event_details=event_details,
+                chat_refs=chat_refs,
+                round_index=self._resolve_transition_round_index(round_index),
+            )
+            if updated is None:
+                raise TaskLifecycleError(f"Task not found: {task_ref}")
+            self._log_task_transition(
+                updated,
+                actor=actor,
+                event_type=event_type,
+                reason=normalized_reason,
+                output=normalized_output,
+            )
+            return updated
+
         if normalized_status == TASK_STATUS_OPEN:
-            task = self._get_required_task(task_ref)
             if task.status == TASK_STATUS_OFFERED:
                 return self.accept_task(
                     task_ref,
                     actor=actor,
                     reason=reason,
                     round_index=round_index,
+                    event_details=event_details,
+                    chat_refs=chat_refs,
                 )
             return self.reopen_task(
                 task_ref,
                 actor=actor,
                 reason=reason,
                 round_index=round_index,
+                event_details=event_details,
+                chat_refs=chat_refs,
             )
         if normalized_status == TASK_STATUS_IN_PROGRESS:
             return self.start_task(
@@ -449,6 +768,8 @@ class TaskLifecycleService:
                 actor=actor,
                 reason=reason,
                 round_index=round_index,
+                event_details=event_details,
+                chat_refs=chat_refs,
             )
         if normalized_status == TASK_STATUS_BLOCKED:
             return self.block_task(
@@ -456,6 +777,8 @@ class TaskLifecycleService:
                 actor=actor,
                 reason=reason or "",
                 round_index=round_index,
+                event_details=event_details,
+                chat_refs=chat_refs,
             )
         if normalized_status == TASK_STATUS_DONE:
             return self.complete_task(
@@ -463,6 +786,8 @@ class TaskLifecycleService:
                 actor=actor,
                 output=output or "",
                 round_index=round_index,
+                event_details=event_details,
+                chat_refs=chat_refs,
             )
         if normalized_status == TASK_STATUS_DECLINED:
             return self.decline_task(
@@ -470,6 +795,8 @@ class TaskLifecycleService:
                 actor=actor,
                 reason=reason,
                 round_index=round_index,
+                event_details=event_details,
+                chat_refs=chat_refs,
             )
         if normalized_status == TASK_STATUS_EXPIRED:
             return self.expire_task(
@@ -477,6 +804,8 @@ class TaskLifecycleService:
                 actor=actor,
                 reason=reason,
                 round_index=round_index,
+                event_details=event_details,
+                chat_refs=chat_refs,
             )
         raise TaskLifecycleError(
             f"Unsupported lifecycle status transition: {normalized_status}"
@@ -499,6 +828,11 @@ class TaskLifecycleService:
         due_round: Optional[int],
         round_budget: Optional[int],
         deadline_at: Optional[str],
+        deliverable_type: Optional[str],
+        acceptance_criteria: Any,
+        suggested_tools: Any,
+        tool_plan: Optional[str],
+        chat_refs: Optional[list[dict[str, Any]]],
     ) -> SimulationTask:
         normalized_assigner = (actor or assigned_by or "").strip()
         if actor and assigned_by and actor != assigned_by:
@@ -509,6 +843,15 @@ class TaskLifecycleService:
             raise TaskLifecycleError("Task creation requires a title.")
         if not assigned_to.strip():
             raise TaskLifecycleError("Task creation requires an assignee.")
+
+        task_request_metadata = prepare_task_request_metadata(
+            title=title.strip(),
+            description=description.strip(),
+            deliverable_type=deliverable_type,
+            acceptance_criteria=acceptance_criteria,
+            suggested_tools=suggested_tools,
+            tool_plan=tool_plan,
+        )
 
         (
             resolved_created_round,
@@ -534,6 +877,11 @@ class TaskLifecycleService:
             due_round=resolved_due_round,
             round_budget=resolved_round_budget,
             deadline_at=deadline_at,
+            deliverable_type=task_request_metadata["deliverable_type"],
+            acceptance_criteria=task_request_metadata["acceptance_criteria"],
+            suggested_tools=task_request_metadata["suggested_tools"],
+            tool_plan=task_request_metadata["tool_plan"],
+            chat_refs=chat_refs,
             actor=normalized_assigner,
         )
         if task.origin.endswith("_compat"):
@@ -702,7 +1050,9 @@ class TaskLifecycleService:
             "created_round": task.created_round,
             "due_round": task.due_round,
             "remaining_rounds": self._infer_remaining_rounds(task),
+            "deliverable_type": task.deliverable_type,
             "artifact_count": len(task.artifact_refs or []),
+            "chat_ref_count": len(task.chat_refs or []),
             "completed_at": self._infer_completion_timestamp(task),
             "reason": reason or None,
             "output_present": bool(output or task.output),
@@ -765,11 +1115,15 @@ class TaskLifecycleService:
         lines = [
             f'[Task Offer] {task.assigned_by} offered you "{task.title}" [{task.issue_key}].',
         ]
+        if task.deliverable_type:
+            lines.append(f"Deliverable: {task.deliverable_type}.")
+        if task.acceptance_criteria:
+            lines.append(f"Acceptance criteria: {task.acceptance_criteria[0]}")
         snippet = (task.mention_context or {}).get("snippet")
         if snippet:
             lines.append(f"Public context: {snippet}")
         lines.append(
-            "Accept or decline this offer before moving on to other work. Prefer MCP `accept_task` or `decline_task` when available."
+            "Accept or decline this offer before moving on to other work. Prefer MCP `accept_task` or `decline_task` when available, and respond in public chat once you decide."
         )
 
         queue_notification(

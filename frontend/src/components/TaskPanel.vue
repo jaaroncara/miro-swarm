@@ -3,7 +3,7 @@
     <div class="tp-header">
       <div class="tp-header-copy">
         <span class="tp-title">Tasks</span>
-        <span class="tp-subtitle">Monitor agent-assigned work, resolve pending offers, and manage deliverables during the simulation.</span>
+        <span class="tp-subtitle">Track agent work during the simulation.</span>
       </div>
       <div class="tp-header-actions">
         <span v-if="taskSummary.count || !loading" class="tp-count">{{ taskSummary.count }}</span>
@@ -12,42 +12,6 @@
         </button>
       </div>
     </div>
-
-    <div class="tp-toolbar">
-      <div class="tp-field tp-field-actor">
-        <label class="tp-label" for="task-actor-input">Acting as</label>
-        <input
-          id="task-actor-input"
-          v-model="actingAs"
-          class="tp-input"
-          list="task-agent-options"
-          placeholder="Choose or type an agent name"
-          autocomplete="off"
-        >
-      </div>
-
-      <div class="tp-field tp-field-filter">
-        <label class="tp-label" for="task-status-filter">Status filter</label>
-        <select id="task-status-filter" v-model="filters.status" class="tp-select">
-          <option value="">All statuses</option>
-          <option v-for="status in statusOrder" :key="status" :value="status">
-            {{ statusLabel(status) }}
-          </option>
-        </select>
-      </div>
-
-      <div class="tp-field tp-field-filter">
-        <label class="tp-label" for="task-assignee-filter">Assignee filter</label>
-        <select id="task-assignee-filter" v-model="filters.assignedTo" class="tp-select">
-          <option value="">All assignees</option>
-          <option v-for="name in availableActors" :key="name" :value="name">{{ name }}</option>
-        </select>
-      </div>
-    </div>
-
-    <datalist id="task-agent-options">
-      <option v-for="name in availableActors" :key="name" :value="name" />
-    </datalist>
 
     <div v-if="loading && tasks.length === 0" class="tp-state">
       Loading tasks...
@@ -63,65 +27,89 @@
     </div>
 
     <div v-else class="tp-groups">
-      <template v-for="status in statusOrder" :key="status">
-        <div v-if="tasksByStatus[status] && tasksByStatus[status].length > 0" class="tp-group">
-          <button class="tp-group-header" @click="toggleGroup(status)">
-            <div class="tp-group-left">
-              <span class="tp-collapse">{{ collapsedGroups[status] ? '▶' : '▼' }}</span>
-              <span class="tp-status-dot" :class="'tp-dot-' + status"></span>
-              <span class="tp-group-label">{{ statusLabel(status) }}</span>
-            </div>
-            <span class="tp-group-count">{{ statusCount(status) }}</span>
-          </button>
-
-          <div v-show="!collapsedGroups[status]" class="tp-task-list">
-            <article v-for="task in tasksByStatus[status]" :key="task.id" class="tp-task-card">
-              <div class="tp-task-top">
-                <div class="tp-task-keyline">
-                  <span class="tp-task-id">{{ task.issue_key || task.id }}</span>
-                  <span v-if="task.parent_goal" class="tp-goal-tag">{{ task.parent_goal }}</span>
-                  <span v-if="task.origin" class="tp-origin-tag">{{ formatOrigin(task.origin) }}</span>
-                </div>
-                <span class="tp-status-pill" :class="'tp-pill-' + task.status">
+      <div class="tp-task-list">
+        <article
+          v-for="task in orderedTasks"
+          :key="task.id"
+          class="tp-task-card"
+          :class="{ 'tp-task-card-expanded': isTaskExpanded(task) }"
+        >
+              <button
+                class="tp-card-toggle"
+                type="button"
+                :aria-expanded="isTaskExpanded(task)"
+                :aria-controls="`task-details-${task.id}`"
+                @click="toggleTaskCard(task)"
+              >
+                <span class="tp-task-id">{{ task.issue_key || task.id }}</span>
+                <span
+                  v-if="isTaskExpanded(task)"
+                  class="tp-status-pill"
+                  :class="'tp-pill-' + task.status"
+                >
                   <span class="tp-pill-dot"></span>
                   {{ statusLabel(task.status) }}
                 </span>
-              </div>
+                <span
+                  v-else
+                  class="tp-status-icon"
+                  :class="'tp-pill-' + task.status"
+                  :title="statusLabel(task.status)"
+                  :aria-label="statusLabel(task.status)"
+                ></span>
+              </button>
 
-              <div class="tp-task-title">{{ task.title }}</div>
-              <div v-if="task.description" class="tp-task-description">{{ task.description }}</div>
+              <div
+                v-if="isTaskExpanded(task)"
+                :id="`task-details-${task.id}`"
+                class="tp-task-body"
+              >
+                <div class="tp-task-summary">{{ taskSummaryText(task) }}</div>
 
-              <div class="tp-task-assignment">
-                <span class="tp-agent">{{ task.assigned_by || 'system' }}</span>
-                <span class="tp-arrow">→</span>
-                <span class="tp-agent">{{ task.assigned_to }}</span>
-              </div>
+                <div
+                  v-if="task.deliverable_metadata?.deliverable_type || task.deliverable_metadata?.acceptance_criteria?.length || task.deliverable_metadata?.suggested_tools?.length || task.deliverable_metadata?.tool_plan || task.latest_status_note || latestChatSnippet(task)"
+                  class="tp-task-details"
+                >
+                  <div v-if="task.deliverable_metadata?.deliverable_type" class="tp-detail-line">
+                    <span class="tp-detail-label">Deliverable</span>
+                    <span>{{ formatDeliverableLabel(task.deliverable_metadata.deliverable_type) }}</span>
+                  </div>
 
-              <div v-if="task.offer_pending" class="tp-offer-banner">
-                Pending offer from {{ task.assigned_by || 'system' }}. Accept or decline it before moving on to other work.
-              </div>
+                  <div v-if="task.deliverable_metadata?.acceptance_criteria?.length" class="tp-detail-block">
+                    <span class="tp-detail-label">Acceptance</span>
+                    <ul class="tp-detail-list">
+                      <li v-for="criterion in task.deliverable_metadata.acceptance_criteria" :key="criterion">
+                        {{ criterion }}
+                      </li>
+                    </ul>
+                  </div>
 
-              <div class="tp-task-meta">
-                <span class="tp-meta-chip">Updated {{ formatTimestamp(task.updated_at) }}</span>
-                <span class="tp-meta-chip">{{ task.events_count || 0 }} events</span>
-                <span v-if="formatDeadlineSummary(task)" class="tp-meta-chip" :class="deadlineChipClass(task)">
-                  {{ formatDeadlineSummary(task) }}
-                </span>
-                <span v-if="task.artifact_count" class="tp-meta-chip tp-meta-chip-deliverable">
-                  {{ task.artifact_count }} deliverable{{ task.artifact_count === 1 ? '' : 's' }}
-                </span>
-              </div>
+                  <div v-if="task.deliverable_metadata?.suggested_tools?.length" class="tp-detail-block">
+                    <span class="tp-detail-label">Suggested tools</span>
+                    <div class="tp-chip-row">
+                      <span v-for="toolName in task.deliverable_metadata.suggested_tools" :key="toolName" class="tp-chip">
+                        {{ toolName }}
+                      </span>
+                    </div>
+                  </div>
 
-              <div v-if="task.latest_event" class="tp-latest-event">
-                <span class="tp-event-label">Latest</span>
-                <span class="tp-event-body">{{ formatLatestEvent(task.latest_event) }}</span>
-              </div>
+                  <div v-if="task.deliverable_metadata?.tool_plan" class="tp-detail-line">
+                    <span class="tp-detail-label">Tool plan</span>
+                    <span>{{ task.deliverable_metadata.tool_plan }}</span>
+                  </div>
 
-              <div v-if="task.output && task.status === 'done'" class="tp-output">
-                {{ task.output }}
-              </div>
+                  <div v-if="task.latest_status_note" class="tp-detail-line">
+                    <span class="tp-detail-label">Latest note</span>
+                    <span>{{ task.latest_status_note }}</span>
+                  </div>
 
-              <div class="tp-task-actions">
+                  <div v-if="latestChatSnippet(task)" class="tp-detail-line">
+                    <span class="tp-detail-label">Public update</span>
+                    <span>{{ latestChatSnippet(task) }}</span>
+                  </div>
+                </div>
+
+                <div class="tp-task-actions">
                 <button
                   v-if="canAccept(task)"
                   class="tp-action-btn tp-action-btn-primary"
@@ -147,6 +135,14 @@
                   Start
                 </button>
                 <button
+                  v-if="canUpdate(task)"
+                  class="tp-action-btn"
+                  :disabled="isTaskMutating(task)"
+                  @click="openActionComposer(task, 'update')"
+                >
+                  Update
+                </button>
+                <button
                   v-if="canBlock(task)"
                   class="tp-action-btn"
                   :disabled="isTaskMutating(task)"
@@ -169,108 +165,104 @@
                 >
                   {{ isArtifactPanelOpen(task) ? 'Hide deliverables' : artifactButtonLabel(task) }}
                 </button>
-                <span v-if="needsAssigneeSwitch(task)" class="tp-action-hint">
-                  Switch acting user to {{ task.assigned_to }} to update this task.
-                </span>
-              </div>
-
-              <div v-if="isActionOpen(task)" class="tp-action-composer">
-                <div class="tp-action-header">
-                  <span class="tp-action-title">{{ actionTitle }}</span>
-                  <button class="tp-close-btn" @click="closeActionComposer">Cancel</button>
                 </div>
 
-                <label class="tp-label" :for="`task-action-${task.id}`">{{ actionPrompt }}</label>
-                <textarea
-                  :id="`task-action-${task.id}`"
-                  v-model="actionDraft.message"
-                  class="tp-textarea"
-                  rows="3"
-                  :placeholder="actionPlaceholder"
-                />
-
-                <div class="tp-form-footer tp-form-footer-compact">
-                  <span v-if="actionError" class="tp-inline-message tp-inline-error">{{ actionError }}</span>
-                  <span
-                    v-else-if="actionDraft.mode === 'complete' && !requiresCompletionSummary(task)"
-                    class="tp-inline-message"
-                  >
-                    Optional because this task already has a staged deliverable.
-                  </span>
-                  <button
-                    class="tp-primary-btn"
-                    :disabled="actionPendingTaskId === task.id"
-                    @click="submitTaskAction(task)"
-                  >
-                    {{ actionPendingTaskId === task.id ? actionButtonBusyLabel : actionButtonLabel }}
-                  </button>
-                </div>
-              </div>
-
-              <div v-if="isArtifactPanelOpen(task)" class="tp-artifacts-panel">
-                <div class="tp-action-header">
-                  <span class="tp-action-title">Deliverables</span>
-                  <button class="tp-close-btn" @click="closeArtifactPanel">Done</button>
-                </div>
-
-                <div v-if="task.artifact_summaries?.length" class="tp-artifact-list">
-                  <a
-                    v-for="artifact in task.artifact_summaries"
-                    :key="artifact.artifact_id"
-                    class="tp-artifact-item"
-                    :href="getArtifactDownloadHref(task, artifact)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <span class="tp-artifact-name">{{ artifact.filename }}</span>
-                    <span class="tp-artifact-meta">{{ formatArtifactSummary(artifact) }}</span>
-                  </a>
-                </div>
-                <div v-else class="tp-artifact-empty">
-                  No deliverables uploaded yet.
-                </div>
-
-                <div v-if="canUploadDeliverable(task)" class="tp-artifact-upload">
-                  <label class="tp-label" :for="`task-artifact-${task.id}`">Upload a deliverable</label>
-                  <input
-                    :id="`task-artifact-${task.id}`"
-                    :key="artifactInputKey"
-                    class="tp-file-input"
-                    type="file"
-                    accept=".md,.markdown,.txt,.pdf"
-                    @change="handleArtifactFileSelected(task, $event)"
-                  >
-
-                  <div v-if="artifactDraft.fileName" class="tp-file-chip">
-                    Selected {{ artifactDraft.fileName }}
+                <div v-if="isActionOpen(task)" class="tp-action-composer">
+                  <div class="tp-action-header">
+                    <span class="tp-action-title">{{ actionTitle }}</span>
+                    <button class="tp-close-btn" @click="closeActionComposer">Cancel</button>
                   </div>
 
-                  <label class="tp-label" :for="`task-artifact-note-${task.id}`">Optional note</label>
+                  <label class="tp-label" :for="`task-action-${task.id}`">{{ actionPrompt }}</label>
                   <textarea
-                    :id="`task-artifact-note-${task.id}`"
-                    v-model="artifactDraft.note"
+                    :id="`task-action-${task.id}`"
+                    v-model="actionDraft.message"
                     class="tp-textarea"
-                    rows="2"
-                    placeholder="Describe what this deliverable contains."
+                    rows="3"
+                    :placeholder="actionPlaceholder"
                   />
 
                   <div class="tp-form-footer tp-form-footer-compact">
-                    <span v-if="artifactError" class="tp-inline-message tp-inline-error">{{ artifactError }}</span>
-                    <span v-else class="tp-inline-message">Allowed formats: .md, .txt, .pdf</span>
+                    <span v-if="actionError" class="tp-inline-message tp-inline-error">{{ actionError }}</span>
+                    <span
+                      v-else-if="actionDraft.mode === 'complete' && !requiresCompletionSummary(task)"
+                      class="tp-inline-message"
+                    >
+                      Optional because this task already has a staged deliverable.
+                    </span>
                     <button
                       class="tp-primary-btn"
-                      :disabled="artifactPendingTaskId === task.id"
-                      @click="submitArtifact(task)"
+                      :disabled="actionPendingTaskId === task.id"
+                      @click="submitTaskAction(task)"
                     >
-                      {{ artifactPendingTaskId === task.id ? 'Uploading...' : 'Upload deliverable' }}
+                      {{ actionPendingTaskId === task.id ? actionButtonBusyLabel : actionButtonLabel }}
                     </button>
                   </div>
                 </div>
+
+                <div v-if="isArtifactPanelOpen(task)" class="tp-artifacts-panel">
+                  <div class="tp-action-header">
+                    <span class="tp-action-title">Deliverables</span>
+                    <button class="tp-close-btn" @click="closeArtifactPanel">Done</button>
+                  </div>
+
+                  <div v-if="task.artifact_summaries?.length" class="tp-artifact-list">
+                    <a
+                      v-for="artifact in task.artifact_summaries"
+                      :key="artifact.artifact_id"
+                      class="tp-artifact-item"
+                      :href="getArtifactDownloadHref(task, artifact)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <span class="tp-artifact-name">{{ artifact.filename }}</span>
+                      <span class="tp-artifact-meta">{{ formatArtifactSummary(artifact) }}</span>
+                    </a>
+                  </div>
+                  <div v-else class="tp-artifact-empty">
+                    No deliverables uploaded yet.
+                  </div>
+
+                  <div v-if="canUploadDeliverable(task)" class="tp-artifact-upload">
+                    <label class="tp-label" :for="`task-artifact-${task.id}`">Upload a deliverable</label>
+                    <input
+                      :id="`task-artifact-${task.id}`"
+                      :key="artifactInputKey"
+                      class="tp-file-input"
+                      type="file"
+                      accept=".md,.markdown,.txt,.pdf"
+                      @change="handleArtifactFileSelected(task, $event)"
+                    >
+
+                    <div v-if="artifactDraft.fileName" class="tp-file-chip">
+                      Selected {{ artifactDraft.fileName }}
+                    </div>
+
+                    <label class="tp-label" :for="`task-artifact-note-${task.id}`">Optional note</label>
+                    <textarea
+                      :id="`task-artifact-note-${task.id}`"
+                      v-model="artifactDraft.note"
+                      class="tp-textarea"
+                      rows="2"
+                      placeholder="Describe what this deliverable contains."
+                    />
+
+                    <div class="tp-form-footer tp-form-footer-compact">
+                      <span v-if="artifactError" class="tp-inline-message tp-inline-error">{{ artifactError }}</span>
+                      <span v-else class="tp-inline-message">Allowed formats: .md, .txt, .pdf</span>
+                      <button
+                        class="tp-primary-btn"
+                        :disabled="artifactPendingTaskId === task.id"
+                        @click="submitArtifact(task)"
+                      >
+                        {{ artifactPendingTaskId === task.id ? 'Uploading...' : 'Upload deliverable' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </article>
-          </div>
-        </div>
-      </template>
+        </article>
+      </div>
     </div>
   </div>
 </template>
@@ -282,11 +274,11 @@ import {
   blockSimulationTask,
   completeSimulationTask,
   declineSimulationTask,
-  getSimulationProfilesRealtime,
   getSimulationTaskArtifactDownloadUrl,
   getSimulationTasks,
   saveSimulationTaskArtifact,
-  startSimulationTask
+  startSimulationTask,
+  updateSimulationTaskStatus
 } from '../api/simulation'
 
 const props = defineProps({
@@ -304,27 +296,20 @@ const statusOrder = ['offered', 'open', 'in_progress', 'blocked', 'done', 'decli
 const artifactAcceptExtensions = ['md', 'markdown', 'txt', 'pdf']
 
 const tasks = ref([])
-const taskSummary = ref({ count: 0, filters: {}, status_counts: {} })
+const taskSummary = ref({ count: 0 })
 const loading = ref(false)
 const error = ref(null)
 const actionError = ref('')
-const feedbackMessage = ref('')
-const feedbackType = ref('success')
-const profileActors = ref([])
-const actingAs = ref('')
-const collapsedGroups = ref({})
+const expandedTaskId = ref('')
 const actionDraft = ref({ taskId: '', mode: '', message: '' })
 const actionPendingTaskId = ref('')
 const artifactDraft = ref({ taskId: '', note: '', file: null, fileName: '' })
 const artifactPendingTaskId = ref('')
 const artifactError = ref('')
 const artifactInputKey = ref(0)
-const filters = ref({
-  status: '',
-  assignedTo: ''
-})
 
 let pollTimer = null
+const statusRank = new Map(statusOrder.map((status, index) => [status, index]))
 
 const statusLabel = (status) => {
   const labels = {
@@ -339,88 +324,79 @@ const statusLabel = (status) => {
   return labels[status] || status
 }
 
-const formatOrigin = (origin) => {
-  const labels = {
-    manual: 'Manual',
-    api: 'API',
-    offer: 'Offer',
-    mcp_offer: 'MCP Offer',
-    mention_compat: 'Mention Offer',
-    xml_compat: 'XML Offer',
-    legacy: 'Legacy'
+const taskSummaryText = (task) => {
+  const title = String(task?.title || '').trim()
+  const description = String(task?.description || '').trim()
+
+  if (title && description && title.toLowerCase() !== description.toLowerCase()) {
+    return `${title}: ${description}`
   }
-  return labels[origin] || origin
+
+  return title || description || 'No task description provided.'
 }
 
-const uniqueNames = (values) => {
-  const seen = new Set()
-  return values.filter((value) => {
-    const normalized = String(value || '').trim()
-    if (!normalized) {
-      return false
-    }
-    if (seen.has(normalized)) {
-      return false
-    }
-    seen.add(normalized)
-    return true
-  })
+const formatDeliverableLabel = (value) => {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase())
 }
 
-const collectProfileNames = (profile) => {
-  return uniqueNames([
-    profile?.username,
-    profile?.user_name,
-    profile?.agent_name,
-    profile?.name,
-    profile?.realname,
-    profile?.user_id
-  ])
+const latestChatSnippet = (task) => {
+  const refs = Array.isArray(task?.chat_refs) ? task.chat_refs : []
+  return refs.length ? String(refs[refs.length - 1]?.snippet || '') : ''
 }
 
-const availableActors = computed(() => {
-  const taskActors = tasks.value.flatMap((task) => uniqueNames([
-    task.assigned_to,
-    task.assigned_by
-  ]))
-  return uniqueNames([
-    ...profileActors.value,
-    ...taskActors,
-    actingAs.value
-  ])
-})
+const isTaskExpanded = (task) => {
+  return expandedTaskId.value === task.id
+}
 
-const feedbackClass = computed(() => {
-  return feedbackType.value === 'error' ? 'tp-inline-error' : 'tp-inline-success'
-})
+const closePanelsForTask = (taskId) => {
+  if (actionDraft.value.taskId === taskId) {
+    closeActionComposer()
+  }
+  if (artifactDraft.value.taskId === taskId) {
+    closeArtifactPanel()
+  }
+}
 
-const tasksByStatus = computed(() => {
-  const groups = {}
-  statusOrder.forEach((status) => {
-    groups[status] = []
-  })
+const expandTaskCard = (taskId) => {
+  if (expandedTaskId.value && expandedTaskId.value !== taskId) {
+    closePanelsForTask(expandedTaskId.value)
+  }
+  expandedTaskId.value = taskId
+}
 
-  tasks.value.forEach((task) => {
-    const status = task.status || 'open'
-    if (!groups[status]) {
-      groups[status] = []
+const collapseTaskCard = (taskId) => {
+  if (expandedTaskId.value !== taskId) {
+    return
+  }
+
+  closePanelsForTask(taskId)
+  expandedTaskId.value = ''
+}
+
+const toggleTaskCard = (task) => {
+  if (isTaskExpanded(task)) {
+    collapseTaskCard(task.id)
+    return
+  }
+
+  expandTaskCard(task.id)
+}
+
+const orderedTasks = computed(() => {
+  return tasks.value.slice().sort((left, right) => {
+    const leftRank = statusRank.get(left.status || 'open') ?? statusOrder.length
+    const rightRank = statusRank.get(right.status || 'open') ?? statusOrder.length
+
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank
     }
-    groups[status].push(task)
+
+    const leftTs = Date.parse(left.updated_at || left.created_at || 0)
+    const rightTs = Date.parse(right.updated_at || right.created_at || 0)
+    return rightTs - leftTs
   })
-
-  Object.keys(groups).forEach((status) => {
-    groups[status] = groups[status].slice().sort((left, right) => {
-      const leftTs = Date.parse(left.updated_at || left.created_at || 0)
-      const rightTs = Date.parse(right.updated_at || right.created_at || 0)
-      return rightTs - leftTs
-    })
-  })
-
-  return groups
-})
-
-const activeTask = computed(() => {
-  return tasks.value.find((task) => task.id === actionDraft.value.taskId) || null
 })
 
 const actionTitle = computed(() => {
@@ -432,6 +408,9 @@ const actionTitle = computed(() => {
   }
   if (actionDraft.value.mode === 'start') {
     return 'Start task'
+  }
+  if (actionDraft.value.mode === 'update') {
+    return 'Post progress update'
   }
   if (actionDraft.value.mode === 'block') {
     return 'Block task'
@@ -452,6 +431,9 @@ const actionPrompt = computed(() => {
   if (actionDraft.value.mode === 'start') {
     return 'Optional note'
   }
+  if (actionDraft.value.mode === 'update') {
+    return 'Progress note'
+  }
   if (actionDraft.value.mode === 'block') {
     return 'Blocking reason'
   }
@@ -470,6 +452,9 @@ const actionPlaceholder = computed(() => {
   }
   if (actionDraft.value.mode === 'start') {
     return 'Optional context for the assignee starting the work.'
+  }
+  if (actionDraft.value.mode === 'update') {
+    return 'Share a concise progress update or status note.'
   }
   if (actionDraft.value.mode === 'block') {
     return 'Explain what is blocking progress.'
@@ -490,6 +475,9 @@ const actionButtonLabel = computed(() => {
   if (actionDraft.value.mode === 'start') {
     return 'Confirm start'
   }
+  if (actionDraft.value.mode === 'update') {
+    return 'Save update'
+  }
   if (actionDraft.value.mode === 'block') {
     return 'Save blocked status'
   }
@@ -509,6 +497,9 @@ const actionButtonBusyLabel = computed(() => {
   if (actionDraft.value.mode === 'start') {
     return 'Starting...'
   }
+  if (actionDraft.value.mode === 'update') {
+    return 'Saving update...'
+  }
   if (actionDraft.value.mode === 'block') {
     return 'Blocking...'
   }
@@ -517,68 +508,6 @@ const actionButtonBusyLabel = computed(() => {
   }
   return 'Saving...'
 })
-
-const statusCount = (status) => {
-  return taskSummary.value.status_counts?.[status] ?? tasksByStatus.value[status]?.length ?? 0
-}
-
-const formatTimestamp = (value) => {
-  if (!value) {
-    return 'just now'
-  }
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-
-  return parsed.toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-const formatLatestEvent = (event) => {
-  if (!event) {
-    return ''
-  }
-
-  const actor = event.actor || 'system'
-  const eventType = event.event_type || 'updated'
-  const note = event.details?.note || event.details?.output || ''
-  return note ? `${actor} ${eventType}: ${note}` : `${actor} ${eventType}`
-}
-
-const formatDeadlineSummary = (task) => {
-  const deadline = task?.deadline || {}
-  if (deadline.remaining_rounds === 0 && deadline.due_round != null && !task.is_terminal) {
-    return `Due now · R${deadline.due_round}`
-  }
-  if (deadline.remaining_rounds != null && deadline.due_round != null) {
-    const suffix = deadline.remaining_rounds === 1 ? '' : 's'
-    return `${deadline.remaining_rounds} round${suffix} left · R${deadline.due_round}`
-  }
-  if (deadline.due_round != null) {
-    return `Due round ${deadline.due_round}`
-  }
-  if (deadline.deadline_at) {
-    return `Due ${formatTimestamp(deadline.deadline_at)}`
-  }
-  return ''
-}
-
-const deadlineChipClass = (task) => {
-  const deadline = task?.deadline || {}
-  if (task.status === 'expired') {
-    return 'tp-meta-chip-expired'
-  }
-  if (deadline.remaining_rounds === 0 && !task.is_terminal) {
-    return 'tp-meta-chip-urgent'
-  }
-  return 'tp-meta-chip-deadline'
-}
 
 const requiresCompletionSummary = (task) => {
   return !((task?.artifact_count || 0) > 0)
@@ -623,29 +552,23 @@ const getArtifactDownloadHref = (task, artifact) => {
   return artifact.download_url || getSimulationTaskArtifactDownloadUrl(props.simulationId, taskRef(task), artifact.artifact_id)
 }
 
-const resetFeedback = () => {
-  feedbackMessage.value = ''
-  feedbackType.value = 'success'
-}
-
-const setFeedback = (message, type = 'success') => {
-  feedbackMessage.value = message
-  feedbackType.value = type
-}
-
 const applyTaskCollection = (payload) => {
   tasks.value = Array.isArray(payload?.tasks) ? payload.tasks : []
   taskSummary.value = {
-    count: payload?.count || tasks.value.length,
-    filters: payload?.filters || {},
-    status_counts: payload?.status_counts || {}
+    count: payload?.count || tasks.value.length
   }
 
-  statusOrder.forEach((status) => {
-    if (!(status in collapsedGroups.value)) {
-      collapsedGroups.value[status] = false
-    }
-  })
+  const validTaskIds = new Set(tasks.value.map((task) => task.id))
+  if (expandedTaskId.value && !validTaskIds.has(expandedTaskId.value)) {
+    expandedTaskId.value = ''
+  }
+
+  if (actionDraft.value.taskId && !validTaskIds.has(actionDraft.value.taskId)) {
+    closeActionComposer()
+  }
+  if (artifactDraft.value.taskId && !validTaskIds.has(artifactDraft.value.taskId)) {
+    closeArtifactPanel()
+  }
 }
 
 const loadTasks = async () => {
@@ -656,10 +579,7 @@ const loadTasks = async () => {
   loading.value = true
   error.value = null
   try {
-    const res = await getSimulationTasks(props.simulationId, {
-      status: filters.value.status || undefined,
-      assigned_to: filters.value.assignedTo || undefined
-    })
+    const res = await getSimulationTasks(props.simulationId)
     applyTaskCollection(res.data)
   } catch (err) {
     error.value = err.message || 'Failed to load tasks'
@@ -668,57 +588,36 @@ const loadTasks = async () => {
   }
 }
 
-const loadAgentOptions = async () => {
-  if (!props.simulationId) {
-    return
-  }
-
-  const [redditProfiles, twitterProfiles] = await Promise.allSettled([
-    getSimulationProfilesRealtime(props.simulationId, 'reddit'),
-    getSimulationProfilesRealtime(props.simulationId, 'twitter')
-  ])
-
-  const names = []
-  ;[redditProfiles, twitterProfiles].forEach((result) => {
-    if (result.status === 'fulfilled') {
-      const profiles = result.value?.data?.profiles || []
-      profiles.forEach((profile) => {
-        names.push(...collectProfileNames(profile))
-      })
-    }
-  })
-
-  profileActors.value = uniqueNames(names)
-}
-
-const syncDefaultActor = () => {
-  if (!actingAs.value && availableActors.value.length > 0) {
-    actingAs.value = availableActors.value[0]
-  }
+const hasAssignee = (task) => {
+  return Boolean(String(task?.assigned_to || '').trim())
 }
 
 const canStart = (task) => {
-  return task.status === 'open' || task.status === 'blocked'
+  return hasAssignee(task) && (task.status === 'open' || task.status === 'blocked')
 }
 
 const canAccept = (task) => {
-  return task.status === 'offered'
+  return hasAssignee(task) && task.status === 'offered'
 }
 
 const canDecline = (task) => {
-  return task.status === 'offered'
+  return hasAssignee(task) && task.status === 'offered'
 }
 
 const canBlock = (task) => {
-  return task.status === 'open' || task.status === 'in_progress'
+  return hasAssignee(task) && (task.status === 'open' || task.status === 'in_progress')
+}
+
+const canUpdate = (task) => {
+  return hasAssignee(task) && ['open', 'in_progress', 'blocked'].includes(task.status)
 }
 
 const canComplete = (task) => {
-  return ['open', 'in_progress', 'blocked'].includes(task.status)
+  return hasAssignee(task) && ['open', 'in_progress', 'blocked'].includes(task.status)
 }
 
 const canUploadDeliverable = (task) => {
-  return !['declined', 'expired'].includes(task.status)
+  return hasAssignee(task) && !['declined', 'expired'].includes(task.status)
 }
 
 const isActionOpen = (task) => {
@@ -733,24 +632,9 @@ const isTaskMutating = (task) => {
   return actionPendingTaskId.value === task.id
 }
 
-const needsAssigneeSwitch = (task) => {
-  const actor = String(actingAs.value || '').trim()
-  if (!actor) {
-    return false
-  }
-  const assignee = String(task.assigned_to || '').trim()
-  if (!assignee) {
-    return false
-  }
-  const requiresAssigneeAction = canAccept(task) || canDecline(task) || canStart(task) || canBlock(task) || canComplete(task)
-  return requiresAssigneeAction && actor !== assignee
-}
-
 const openActionComposer = (task, mode) => {
   actionError.value = ''
-  if (!actingAs.value) {
-    actingAs.value = task.assigned_to || ''
-  }
+  expandTaskCard(task.id)
   actionDraft.value = {
     taskId: task.id,
     mode,
@@ -775,6 +659,7 @@ const toggleArtifactPanel = (task) => {
     closeArtifactPanel()
     return
   }
+  expandTaskCard(task.id)
   artifactDraft.value = {
     taskId: task.id,
     note: '',
@@ -785,10 +670,6 @@ const toggleArtifactPanel = (task) => {
 }
 
 const resolveActionActor = (task) => {
-  const actor = String(actingAs.value || '').trim()
-  if (actor) {
-    return actor
-  }
   return String(task.assigned_to || '').trim()
 }
 
@@ -850,13 +731,12 @@ const handleArtifactFileSelected = (task, event) => {
 
 const submitArtifact = async (task) => {
   artifactError.value = ''
-  resetFeedback()
 
   const actor = resolveActionActor(task)
   const file = artifactDraft.value.file
 
   if (!actor) {
-    artifactError.value = 'Choose an acting user before uploading a deliverable.'
+    artifactError.value = 'This task has no assignee, so no deliverable can be uploaded from the panel.'
     return
   }
   if (!file) {
@@ -887,7 +767,6 @@ const submitArtifact = async (task) => {
       fileName: ''
     }
     artifactInputKey.value += 1
-    setFeedback(`Deliverable uploaded for ${taskRef(task)}.`)
     await loadTasks()
   } catch (err) {
     artifactError.value = err.message || 'Failed to upload deliverable'
@@ -898,13 +777,12 @@ const submitArtifact = async (task) => {
 
 const submitTaskAction = async (task) => {
   actionError.value = ''
-  resetFeedback()
 
   const actor = resolveActionActor(task)
   const message = String(actionDraft.value.message || '').trim()
 
   if (!actor) {
-    actionError.value = 'Choose an acting user before updating a task.'
+    actionError.value = 'This task has no assignee, so it cannot be updated from the panel.'
     return
   }
   if (actionDraft.value.mode === 'decline' && !message) {
@@ -913,6 +791,10 @@ const submitTaskAction = async (task) => {
   }
   if (actionDraft.value.mode === 'block' && !message) {
     actionError.value = 'Blocked tasks require a reason.'
+    return
+  }
+  if (actionDraft.value.mode === 'update' && !message) {
+    actionError.value = 'Progress updates require a note.'
     return
   }
   if (actionDraft.value.mode === 'complete' && !message && requiresCompletionSummary(task)) {
@@ -927,7 +809,6 @@ const submitTaskAction = async (task) => {
         actor,
         reason: message
       })
-      setFeedback(`Task ${taskRef(task)} accepted.`)
     }
 
     if (actionDraft.value.mode === 'decline') {
@@ -935,7 +816,6 @@ const submitTaskAction = async (task) => {
         actor,
         reason: message
       })
-      setFeedback(`Task ${taskRef(task)} declined.`)
     }
 
     if (actionDraft.value.mode === 'start') {
@@ -943,7 +823,14 @@ const submitTaskAction = async (task) => {
         actor,
         reason: message
       })
-      setFeedback(`Task ${taskRef(task)} started.`)
+    }
+
+    if (actionDraft.value.mode === 'update') {
+      await updateSimulationTaskStatus(props.simulationId, taskRef(task), {
+        actor,
+        status: task.status,
+        reason: message
+      })
     }
 
     if (actionDraft.value.mode === 'block') {
@@ -951,7 +838,6 @@ const submitTaskAction = async (task) => {
         actor,
         reason: message
       })
-      setFeedback(`Task ${taskRef(task)} blocked.`)
     }
 
     if (actionDraft.value.mode === 'complete') {
@@ -959,7 +845,6 @@ const submitTaskAction = async (task) => {
         actor,
         output: message
       })
-      setFeedback(`Task ${taskRef(task)} completed.`)
     }
 
     closeActionComposer()
@@ -971,14 +856,8 @@ const submitTaskAction = async (task) => {
   }
 }
 
-const toggleGroup = (status) => {
-  collapsedGroups.value[status] = !collapsedGroups.value[status]
-}
-
 const refreshPanel = async () => {
-  resetFeedback()
-  await Promise.all([loadTasks(), loadAgentOptions()])
-  syncDefaultActor()
+  await loadTasks()
 }
 
 const startPolling = () => {
@@ -1003,20 +882,6 @@ watch(
     refreshPanel()
   },
   { immediate: true }
-)
-
-watch(
-  () => [filters.value.status, filters.value.assignedTo],
-  () => {
-    loadTasks()
-  }
-)
-
-watch(
-  availableActors,
-  () => {
-    syncDefaultActor()
-  }
 )
 
 watch(
@@ -1153,14 +1018,6 @@ onUnmounted(() => {
   border-color: var(--accent-hover);
 }
 
-.tp-toolbar {
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: minmax(220px, 1.8fr) repeat(2, minmax(160px, 1fr));
-  gap: 12px;
-  padding: 16px 24px 0;
-}
-
 .tp-label {
   font-size: 11px;
   font-weight: 700;
@@ -1169,8 +1026,6 @@ onUnmounted(() => {
   letter-spacing: 0.06em;
 }
 
-.tp-input,
-.tp-select,
 .tp-textarea {
   width: 100%;
   background: var(--bg-secondary);
@@ -1181,8 +1036,6 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
-.tp-input:focus,
-.tp-select:focus,
 .tp-textarea:focus {
   border-color: var(--accent-color);
   outline: none;
@@ -1238,7 +1091,7 @@ onUnmounted(() => {
 .tp-groups {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0 20px;
+  padding: 16px 0 20px;
 }
 
 .tp-groups::-webkit-scrollbar {
@@ -1250,93 +1103,9 @@ onUnmounted(() => {
   border-radius: 2px;
 }
 
-.tp-group {
-  margin-bottom: 10px;
-}
-
-.tp-group-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  background: transparent;
-  border: none;
-  padding: 8px 24px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.tp-group-header:hover {
-  background: var(--bg-secondary);
-}
-
-.tp-group-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tp-collapse {
-  font-size: 8px;
-  color: var(--text-muted);
-  width: 10px;
-}
-
-.tp-status-dot,
 .tp-pill-dot {
   border-radius: 50%;
   flex-shrink: 0;
-}
-
-.tp-status-dot {
-  width: 8px;
-  height: 8px;
-}
-
-.tp-dot-open {
-  background: var(--info-color, #2196F3);
-}
-
-.tp-dot-offered {
-  background: var(--accent-color, #1A936F);
-}
-
-.tp-dot-in_progress {
-  background: var(--warning-color, #FF9800);
-}
-
-.tp-dot-blocked {
-  background: var(--error-color, #F44336);
-}
-
-.tp-dot-done {
-  background: var(--success-color, #4CAF50);
-}
-
-.tp-dot-declined {
-  background: var(--text-muted);
-}
-
-.tp-dot-expired {
-  background: #8B5CF6;
-}
-
-.tp-group-label {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.tp-group-count {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  font-family: 'JetBrains Mono', monospace;
-  background: var(--bg-secondary);
-  padding: 2px 8px;
-  border-radius: 10px;
 }
 
 .tp-task-list {
@@ -1350,15 +1119,43 @@ onUnmounted(() => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 10px;
+  overflow: hidden;
+}
+
+.tp-task-card-expanded {
+  border-color: var(--border-hover);
+}
+
+.tp-card-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 14px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tp-card-toggle:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tp-card-toggle:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
+.tp-task-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 0 14px 14px;
 }
 
-.tp-task-top,
-.tp-task-keyline,
-.tp-task-meta,
 .tp-task-actions,
 .tp-action-header {
   display: flex;
@@ -1367,15 +1164,19 @@ onUnmounted(() => {
   gap: 10px;
 }
 
-.tp-task-keyline {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-}
-
 .tp-task-id {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tp-status-icon {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
 }
 
 .tp-status-pill {
@@ -1452,111 +1253,63 @@ onUnmounted(() => {
   background: #8B5CF6;
 }
 
-.tp-task-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.4;
-}
-
-.tp-task-description,
-.tp-output,
-.tp-latest-event {
-  font-size: 12px;
+.tp-task-summary {
+  font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
-.tp-task-assignment {
+.tp-task-details {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tp-detail-line,
+.tp-detail-block {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   font-size: 12px;
   color: var(--text-secondary);
 }
 
-.tp-agent {
-  color: var(--text-secondary);
-}
-
-.tp-arrow {
+.tp-detail-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-muted);
-  font-size: 11px;
 }
 
-.tp-goal-tag,
-.tp-origin-tag,
-.tp-meta-chip {
+.tp-detail-list {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.tp-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tp-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
   padding: 4px 8px;
-}
-
-.tp-origin-tag {
-  color: var(--text-primary);
-}
-
-.tp-offer-banner {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-primary);
-  background: rgba(74, 144, 226, 0.1);
-  border: 1px solid rgba(74, 144, 226, 0.22);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.tp-meta-chip-deadline {
-  color: var(--warning-color, #FF9800);
-}
-
-.tp-meta-chip-urgent {
-  color: var(--error-color, #F44336);
-  border-color: rgba(244, 67, 54, 0.24);
-}
-
-.tp-meta-chip-expired {
-  color: var(--text-muted);
-}
-
-.tp-meta-chip-deliverable {
-  color: var(--accent-color);
-}
-
-.tp-task-meta {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-}
-
-.tp-latest-event {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.tp-event-label {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.tp-event-body {
-  flex: 1;
-}
-
-.tp-output {
-  background: rgba(18, 18, 18, 0.45);
+  border-radius: 999px;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  font-size: 11px;
+  color: var(--text-primary);
 }
 
 .tp-task-actions {
@@ -1567,11 +1320,6 @@ onUnmounted(() => {
 .tp-action-btn,
 .tp-action-btn-primary {
   padding: 8px 10px;
-}
-
-.tp-action-hint {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 
 .tp-action-composer {
@@ -1669,21 +1417,10 @@ onUnmounted(() => {
 
 @media (max-width: 960px) {
   .tp-header,
-  .tp-card-header-row,
   .tp-form-footer,
-  .tp-task-top,
   .tp-action-header {
     flex-direction: column;
     align-items: flex-start;
-  }
-
-  .tp-toolbar,
-  .tp-form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .tp-field-span-2 {
-    grid-column: span 1;
   }
 
   .tp-header-actions {

@@ -36,10 +36,15 @@ def _format_task_summary(task) -> str:
     )
     artifact_count = len(getattr(task, "artifact_refs", []) or [])
     artifact_label = f" | Artifacts: {artifact_count}" if artifact_count else ""
+    deliverable_label = (
+        f" | Deliverable: {task.deliverable_type}"
+        if getattr(task, "deliverable_type", None)
+        else ""
+    )
     return (
         f'{task.issue_key} [{task.status}] "{task.title}" '
         f"({task.assigned_by} -> {task.assigned_to}{goal_label})"
-        f"{deadline_label}{artifact_label}"
+        f"{deadline_label}{deliverable_label}{artifact_label}"
     )
 
 
@@ -59,6 +64,9 @@ async def offer_task(
     assigned_to: str,
     actor: str,
     parent_goal: str = "",
+    deliverable_type: str = "",
+    acceptance_criteria: str = "",
+    tool_plan: str = "",
     due_round: int | None = None,
     round_budget: int | None = None,
     deadline_at: str = "",
@@ -74,6 +82,9 @@ async def offer_task(
             due_round=due_round,
             round_budget=round_budget,
             deadline_at=deadline_at or None,
+            deliverable_type=deliverable_type or None,
+            acceptance_criteria=acceptance_criteria or None,
+            tool_plan=tool_plan or None,
             origin="mcp_offer",
             origin_metadata={"source": "mcp", "tool": "offer_task"},
         )
@@ -154,6 +165,29 @@ async def start_task(
         return f"Task started: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
         return f"Task start rejected: {exc}"
+
+
+@mcp.tool()
+async def update_task_status(
+    simulation_id: str,
+    issue_key: str,
+    actor: str,
+    status: str,
+    reason: str = "",
+    output: str = "",
+) -> str:
+    """Record a progress note or update one of your assigned task statuses."""
+    try:
+        task = _get_lifecycle(simulation_id).update_task_status(
+            task_ref=issue_key,
+            actor=actor,
+            status=status,
+            reason=reason,
+            output=output,
+        )
+        return f"Task updated: {_format_task_summary(task)}"
+    except (TaskAuthorizationError, TaskLifecycleError) as exc:
+        return f"Task update rejected: {exc}"
 
 
 @mcp.tool()

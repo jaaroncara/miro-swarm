@@ -423,6 +423,18 @@ def test_task_server_exposes_offer_lifecycle_tools(
     assert "Task started:" in restarted_message
     assert "[in_progress]" in restarted_message
 
+    progress_message = asyncio.run(
+        task_server.update_task_status(
+            simulation_id="sim_test",
+            issue_key="TEST-1",
+            actor="Bob",
+            status="in_progress",
+            reason="Halfway through the analysis",
+        )
+    )
+    assert "Task updated:" in progress_message
+    assert "[in_progress]" in progress_message
+
     completed_message = asyncio.run(
         task_server.complete_task(
             simulation_id="sim_test",
@@ -455,6 +467,70 @@ def test_task_server_exposes_offer_lifecycle_tools(
     )
     assert "Task declined:" in declined_message
     assert "[declined]" in declined_message
+
+
+def test_meeting_only_tasks_are_rejected_until_rewritten(simulation_root: Path):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    with pytest.raises(TaskLifecycleError):
+        lifecycle.offer_task(
+            title="Set up a meeting with Marketing",
+            description="Schedule a sync so we can talk through the launch plan.",
+            assigned_to="Bob",
+            actor="Alice",
+        )
+
+    rewritten = lifecycle.offer_task(
+        title="Prepare launch alignment brief",
+        description="Create a concise summary for Marketing covering launch risks and next steps.",
+        assigned_to="Bob",
+        actor="Alice",
+    )
+
+    assert rewritten.status == "offered"
+    assert rewritten.deliverable_type == "research_brief"
+    assert "Do not rely on off-screen meetings" in rewritten.acceptance_criteria[1]
+
+
+def test_update_task_status_supports_progress_notes_and_chat_refs(
+    simulation_root: Path,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.create_task(
+        title="Compile findings",
+        description="Prepare the findings summary.",
+        assigned_to="Bob",
+        actor="Alice",
+    )
+
+    updated = lifecycle.update_task_status(
+        task.issue_key,
+        actor="Bob",
+        status="open",
+        reason="Collected three source documents and drafted the outline.",
+        event_details={"summary": "Collected three source documents."},
+        chat_refs=[
+            {
+                "platform": "twitter",
+                "actor": "Bob",
+                "post_id": "42",
+                "snippet": "@Alice TEST-1 collected three source documents and drafted the outline.",
+                "round_index": 2,
+            }
+        ],
+        round_index=2,
+    )
+
+    assert updated.status == "open"
+    assert updated.events[-1].event_type == "progress_updated"
+    assert updated.events[-1].details["note"] == (
+        "Collected three source documents and drafted the outline."
+    )
+    assert updated.events[-1].chat_refs[0].post_id == "42"
+    assert updated.chat_refs[0].snippet.startswith("@Alice TEST-1")
 
 
 def test_task_tool_routing_keeps_task_lifecycle_tools_available():
@@ -1051,6 +1127,83 @@ def test_phase_three_processes_mention_driven_offer(simulation_root: Path):
     assert notifications[0].task_ref == offered.issue_key
 
 
+def test_phase_three_meeting_like_mentions_queue_rewrite_notification(
+    simulation_root: Path,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+
+    structured_pairs = process_task_actions_for_round(
+        actual_actions=[
+            {
+                "trace_rowid": 21,
+                "agent_id": 1,
+                "agent_name": "Alice",
+                "action_type": "CREATE_POST",
+                "action_args": {
+                    "content": "@Bob please set up a meeting with Marketing so we can talk through this.",
+                    "post_id": 14,
+                },
+            }
+        ],
+        simulation_id="sim_test",
+        store=store,
+        platform="twitter",
+        round_index=4,
+        mention_aliases={"bob": "Bob"},
+        structured_offer_pairs=set(),
+    )
+
+    assert structured_pairs == set()
+    assert store.list_tasks() == []
+
+    notifications = store.list_notifications(recipient="Bob", delivered=False)
+    assert len(notifications) == 1
+    assert notifications[0].category == "task_rewrite_needed"
+    assert "rewriting it into a concrete brief" in notifications[0].message
+
+
+def test_phase_three_public_issue_key_updates_are_linked_to_tasks(
+    simulation_root: Path,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.create_task(
+        title="Draft supplier summary",
+        description="Prepare the supplier summary for Alice.",
+        assigned_to="Bob",
+        actor="Alice",
+    )
+
+    process_task_actions_for_round(
+        actual_actions=[
+            {
+                "trace_rowid": 33,
+                "agent_id": 2,
+                "agent_name": "Bob",
+                "action_type": "CREATE_POST",
+                "action_args": {
+                    "content": f"@Alice {task.issue_key} is in progress. I have the first draft ready.",
+                    "post_id": 27,
+                },
+            }
+        ],
+        simulation_id="sim_test",
+        store=store,
+        platform="twitter",
+        round_index=5,
+        mention_aliases={"alice": "Alice"},
+        structured_offer_pairs=set(),
+    )
+
+    updated = store.get_task(task.issue_key)
+    assert updated is not None
+    assert updated.events[-1].event_type == "public_update"
+    assert updated.events[-1].details["summary"].startswith("@Alice")
+    assert updated.events[-1].chat_refs[0].post_id == "27"
+    assert updated.chat_refs[-1].snippet.startswith("@Alice")
+
+
 def test_phase_three_skips_mention_offer_when_structured_offer_exists_in_round(
     simulation_root: Path,
 ):
@@ -1350,6 +1503,69 @@ def test_phase_six_task_api_supports_accept_decline_and_artifacts(
     completed_task = completed_response.get_json()["data"]["task"]
     assert completed_task["status"] == "done"
     assert completed_task["artifact_count"] == 1
+
+
+def test_phase_six_task_api_supports_generic_status_updates_and_metadata(
+    task_api_client,
+):
+    create_response = task_api_client.post(
+        "/api/simulation/sim_test/tasks",
+        json={
+            "title": "Prepare KPI summary",
+            "description": "Produce a concise KPI summary for leadership.",
+            "assigned_to": "Bob",
+            "actor": "Alice",
+            "deliverable_type": "analytics_summary",
+            "acceptance_criteria": [
+                "Include the top three KPIs.",
+                "Note any material risk or upside.",
+            ],
+            "tool_plan": "Use lookup_business_data first, then save a markdown brief if needed.",
+        },
+    )
+
+    assert create_response.status_code == 201
+    created_task = create_response.get_json()["data"]["task"]
+    assert (
+        created_task["deliverable_metadata"]["deliverable_type"] == "analytics_summary"
+    )
+    assert (
+        created_task["deliverable_metadata"]["acceptance_criteria"][0]
+        == "Include the top three KPIs."
+    )
+
+    update_response = task_api_client.post(
+        "/api/simulation/sim_test/tasks/TEST-1/status",
+        json={
+            "actor": "Bob",
+            "status": "open",
+            "reason": "Collected the KPI inputs and drafted the summary outline.",
+        },
+    )
+    assert update_response.status_code == 200
+    updated_task = update_response.get_json()["data"]["task"]
+    assert updated_task["status"] == "open"
+    assert updated_task["latest_event"]["event_type"] == "progress_updated"
+    assert updated_task["latest_status_note"] == (
+        "Collected the KPI inputs and drafted the summary outline."
+    )
+
+
+def test_task_api_rejects_meeting_only_requests(task_api_client):
+    create_response = task_api_client.post(
+        "/api/simulation/sim_test/tasks",
+        json={
+            "title": "Set up a meeting with Marketing",
+            "description": "Schedule a sync to talk through the campaign.",
+            "assigned_to": "Bob",
+            "actor": "Alice",
+        },
+    )
+
+    assert create_response.status_code == 400
+    assert (
+        "Meeting-style tasks are not executable" in create_response.get_json()["error"]
+    )
 
 
 def test_phase_six_task_list_and_run_status_detail_include_task_events(

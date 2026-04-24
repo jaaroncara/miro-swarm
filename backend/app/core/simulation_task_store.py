@@ -71,6 +71,63 @@ def _normalise_metadata_dict(value: Any) -> dict[str, Any]:
     return {"raw": value}
 
 
+def _normalise_optional_text(value: Any) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _normalise_string_list(value: Any, *, split_commas: bool = False) -> list[str]:
+    if value in (None, ""):
+        return []
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+
+        if stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                return _normalise_string_list(parsed, split_commas=split_commas)
+
+        separators = r"(?:\r?\n|;)"
+        if split_commas:
+            separators = r"(?:\r?\n|;|,)"
+
+        parts = re.split(separators, stripped)
+        if len(parts) == 1:
+            parts = [stripped]
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for part in parts:
+            cleaned = part.strip().lstrip("-*• ").strip()
+            if not cleaned or cleaned in seen:
+                continue
+            normalized.append(cleaned)
+            seen.add(cleaned)
+        return normalized
+
+    if isinstance(value, (list, tuple, set)):
+        normalized = []
+        seen: set[str] = set()
+        for item in value:
+            cleaned = _normalise_optional_text(item)
+            if not cleaned or cleaned in seen:
+                continue
+            normalized.append(cleaned)
+            seen.add(cleaned)
+        return normalized
+
+    cleaned = _normalise_optional_text(value)
+    return [cleaned] if cleaned else []
+
+
 def _resolve_tasks_file(base_dir: Path, simulation_id: str) -> Path:
     """Resolve the task file from either uploads/ or uploads/simulations/."""
     if base_dir.name == "simulations":
@@ -214,6 +271,39 @@ class TaskArtifactRef:
 
 
 @dataclass
+class TaskChatRef:
+    """Reference to a public chat message linked to a task lifecycle event."""
+
+    chat_ref_id: str
+    platform: Optional[str] = None
+    action_type: Optional[str] = None
+    actor: Optional[str] = None
+    trace_rowid: Optional[int] = None
+    post_id: Optional[str] = None
+    comment_id: Optional[str] = None
+    snippet: str = ""
+    created_at: str = field(default_factory=_utc_now)
+    round_index: Optional[int] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TaskChatRef":
+        return cls(
+            chat_ref_id=str(data.get("chat_ref_id") or uuid.uuid4().hex),
+            platform=_normalise_optional_text(data.get("platform")),
+            action_type=_normalise_optional_text(data.get("action_type")),
+            actor=_normalise_optional_text(data.get("actor")),
+            trace_rowid=_coerce_optional_int(data.get("trace_rowid")),
+            post_id=_normalise_optional_text(data.get("post_id")),
+            comment_id=_normalise_optional_text(data.get("comment_id")),
+            snippet=str(data.get("snippet") or ""),
+            created_at=str(data.get("created_at") or _utc_now()),
+            round_index=_coerce_optional_int(data.get("round_index")),
+            metadata=_normalise_metadata_dict(data.get("metadata")),
+        )
+
+
+@dataclass
 class TaskNotification:
     """Persistent notification delivered to an agent during task injection."""
 
@@ -261,6 +351,7 @@ class TaskEvent:
     created_at: str
     details: dict[str, Any] = field(default_factory=dict)
     artifact_refs: list[TaskArtifactRef] = field(default_factory=list)
+    chat_refs: list[TaskChatRef] = field(default_factory=list)
     round_index: Optional[int] = None
 
     @classmethod
@@ -271,6 +362,7 @@ class TaskEvent:
         details: Optional[dict[str, Any]] = None,
         created_at: Optional[str] = None,
         artifact_refs: Optional[list[TaskArtifactRef]] = None,
+        chat_refs: Optional[list[TaskChatRef]] = None,
         round_index: Optional[int] = None,
     ) -> "TaskEvent":
         return cls(
@@ -280,6 +372,7 @@ class TaskEvent:
             created_at=created_at or _utc_now(),
             details=details or {},
             artifact_refs=list(artifact_refs or []),
+            chat_refs=list(chat_refs or []),
             round_index=round_index,
         )
 
@@ -294,6 +387,9 @@ class TaskEvent:
             artifact_refs=[
                 TaskArtifactRef.from_dict(item)
                 for item in data.get("artifact_refs") or []
+            ],
+            chat_refs=[
+                TaskChatRef.from_dict(item) for item in data.get("chat_refs") or []
             ],
             round_index=_coerce_optional_int(data.get("round_index")),
         )
@@ -323,7 +419,12 @@ class SimulationTask:
     due_round: Optional[int] = None
     round_budget: Optional[int] = None
     deadline_at: Optional[str] = None
+    deliverable_type: Optional[str] = None
+    acceptance_criteria: list[str] = field(default_factory=list)
+    suggested_tools: list[str] = field(default_factory=list)
+    tool_plan: Optional[str] = None
     artifact_refs: list[TaskArtifactRef] = field(default_factory=list)
+    chat_refs: list[TaskChatRef] = field(default_factory=list)
     events: list[TaskEvent] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -334,6 +435,7 @@ class SimulationTask:
             self.deadline_at is not None or self.due_round is not None
         )
         payload["artifact_count"] = len(self.artifact_refs)
+        payload["chat_ref_count"] = len(self.chat_refs)
         return payload
 
     @classmethod
@@ -359,9 +461,19 @@ class SimulationTask:
             due_round=_coerce_optional_int(data.get("due_round")),
             round_budget=_coerce_optional_int(data.get("round_budget")),
             deadline_at=data.get("deadline_at"),
+            deliverable_type=_normalise_optional_text(data.get("deliverable_type")),
+            acceptance_criteria=_normalise_string_list(data.get("acceptance_criteria")),
+            suggested_tools=_normalise_string_list(
+                data.get("suggested_tools"),
+                split_commas=True,
+            ),
+            tool_plan=_normalise_optional_text(data.get("tool_plan")),
             artifact_refs=[
                 TaskArtifactRef.from_dict(item)
                 for item in data.get("artifact_refs") or []
+            ],
+            chat_refs=[
+                TaskChatRef.from_dict(item) for item in data.get("chat_refs") or []
             ],
             events=[TaskEvent.from_dict(item) for item in data.get("events") or []],
         )
@@ -422,6 +534,18 @@ class SimulationTaskStore:
     def _clone_task(self, task: SimulationTask) -> SimulationTask:
         return SimulationTask.from_dict(task.to_dict())
 
+    def _normalise_chat_refs(
+        self,
+        chat_refs: Optional[list[TaskChatRef] | list[dict[str, Any]]],
+    ) -> list[TaskChatRef]:
+        normalized: list[TaskChatRef] = []
+        for item in chat_refs or []:
+            if isinstance(item, TaskChatRef):
+                normalized.append(TaskChatRef.from_dict(asdict(item)))
+            elif isinstance(item, dict):
+                normalized.append(TaskChatRef.from_dict(item))
+        return normalized
+
     def _default_event_details(self, task: SimulationTask) -> dict[str, Any]:
         return {
             "issue_key": task.issue_key,
@@ -436,7 +560,12 @@ class SimulationTaskStore:
             "due_round": task.due_round,
             "round_budget": task.round_budget,
             "deadline_at": task.deadline_at,
+            "deliverable_type": task.deliverable_type,
+            "acceptance_criteria": list(task.acceptance_criteria),
+            "suggested_tools": list(task.suggested_tools),
+            "tool_plan": task.tool_plan,
             "artifact_count": len(task.artifact_refs),
+            "chat_ref_count": len(task.chat_refs),
         }
 
     def _build_created_event(
@@ -457,6 +586,7 @@ class SimulationTaskStore:
             created_at=task.created_at,
             details=details,
             artifact_refs=list(task.artifact_refs),
+            chat_refs=list(task.chat_refs),
             round_index=task.created_round,
         )
 
@@ -530,10 +660,47 @@ class SimulationTaskStore:
             task_data["deadline_at"] = None
             migrated = True
 
+        if "deliverable_type" not in task_data:
+            task_data["deliverable_type"] = None
+            migrated = True
+        else:
+            task_data["deliverable_type"] = _normalise_optional_text(
+                task_data.get("deliverable_type")
+            )
+
+        if "acceptance_criteria" not in task_data:
+            task_data["acceptance_criteria"] = []
+            migrated = True
+        else:
+            task_data["acceptance_criteria"] = _normalise_string_list(
+                task_data.get("acceptance_criteria")
+            )
+
+        if "suggested_tools" not in task_data:
+            task_data["suggested_tools"] = []
+            migrated = True
+        else:
+            task_data["suggested_tools"] = _normalise_string_list(
+                task_data.get("suggested_tools"),
+                split_commas=True,
+            )
+
+        if "tool_plan" not in task_data:
+            task_data["tool_plan"] = None
+            migrated = True
+        else:
+            task_data["tool_plan"] = _normalise_optional_text(
+                task_data.get("tool_plan")
+            )
+
         artifact_refs = task_data.get("artifact_refs")
         if artifact_refs is None:
             artifact_refs = task_data.pop("artifacts", []) or []
             task_data["artifact_refs"] = artifact_refs
+            migrated = True
+
+        if "chat_refs" not in task_data:
+            task_data["chat_refs"] = []
             migrated = True
 
         task_data["issue_key"] = issue_key
@@ -570,9 +737,24 @@ class SimulationTaskStore:
                 due_round=_coerce_optional_int(task_data.get("due_round")),
                 round_budget=_coerce_optional_int(task_data.get("round_budget")),
                 deadline_at=task_data.get("deadline_at"),
+                deliverable_type=_normalise_optional_text(
+                    task_data.get("deliverable_type")
+                ),
+                acceptance_criteria=_normalise_string_list(
+                    task_data.get("acceptance_criteria")
+                ),
+                suggested_tools=_normalise_string_list(
+                    task_data.get("suggested_tools"),
+                    split_commas=True,
+                ),
+                tool_plan=_normalise_optional_text(task_data.get("tool_plan")),
                 artifact_refs=[
                     TaskArtifactRef.from_dict(item)
                     for item in task_data.get("artifact_refs") or []
+                ],
+                chat_refs=[
+                    TaskChatRef.from_dict(item)
+                    for item in task_data.get("chat_refs") or []
                 ],
             )
             task_data["events"] = [asdict(self._build_created_event(synthetic_task))]
@@ -660,6 +842,7 @@ class SimulationTaskStore:
         *,
         updated_fields: Optional[dict[str, Any]] = None,
         artifact_refs: Optional[list[TaskArtifactRef]] = None,
+        chat_refs: Optional[list[TaskChatRef]] = None,
         output: Optional[str] = None,
     ) -> None:
         updated_fields = updated_fields or {}
@@ -671,12 +854,20 @@ class SimulationTaskStore:
                 value = _coerce_optional_int(value)
             elif field_name in {"origin_metadata", "mention_context"}:
                 value = _normalise_metadata_dict(value)
+            elif field_name in {"deliverable_type", "tool_plan"}:
+                value = _normalise_optional_text(value)
+            elif field_name == "acceptance_criteria":
+                value = _normalise_string_list(value)
+            elif field_name == "suggested_tools":
+                value = _normalise_string_list(value, split_commas=True)
             setattr(task, field_name, value)
 
         if output is not None:
             task.output = output
         if artifact_refs:
             task.artifact_refs.extend(artifact_refs)
+        if chat_refs:
+            task.chat_refs.extend(chat_refs)
 
     def create_task(
         self,
@@ -694,13 +885,19 @@ class SimulationTaskStore:
         due_round: Optional[int] = None,
         round_budget: Optional[int] = None,
         deadline_at: Optional[str] = None,
+        deliverable_type: Optional[str] = None,
+        acceptance_criteria: Optional[list[str] | str] = None,
+        suggested_tools: Optional[list[str] | str] = None,
+        tool_plan: Optional[str] = None,
         artifact_refs: Optional[list[TaskArtifactRef]] = None,
+        chat_refs: Optional[list[TaskChatRef] | list[dict[str, Any]]] = None,
         actor: Optional[str] = None,
         note: Optional[str] = None,
     ) -> SimulationTask:
         self._ensure_valid_status(status)
         now = _utc_now()
         normalized_artifacts = list(artifact_refs or [])
+        normalized_chat_refs = self._normalise_chat_refs(chat_refs)
         with self._locked_state():
             sequence_number = self._next_sequence_number
             self._next_sequence_number += 1
@@ -724,7 +921,15 @@ class SimulationTaskStore:
                 due_round=due_round,
                 round_budget=round_budget,
                 deadline_at=deadline_at,
+                deliverable_type=_normalise_optional_text(deliverable_type),
+                acceptance_criteria=_normalise_string_list(acceptance_criteria),
+                suggested_tools=_normalise_string_list(
+                    suggested_tools,
+                    split_commas=True,
+                ),
+                tool_plan=_normalise_optional_text(tool_plan),
                 artifact_refs=normalized_artifacts,
+                chat_refs=normalized_chat_refs,
             )
             task.events.append(
                 self._build_created_event(task, actor=actor or assigned_by, note=note)
@@ -802,6 +1007,7 @@ class SimulationTaskStore:
         event_type: Optional[str] = None,
         event_details: Optional[dict[str, Any]] = None,
         artifact_refs: Optional[list[TaskArtifactRef]] = None,
+        chat_refs: Optional[list[TaskChatRef] | list[dict[str, Any]]] = None,
         updated_fields: Optional[dict[str, Any]] = None,
         round_index: Optional[int] = None,
     ) -> Optional[SimulationTask]:
@@ -809,6 +1015,7 @@ class SimulationTaskStore:
             self._ensure_valid_status(status)
 
         normalized_artifact_refs = list(artifact_refs or [])
+        normalized_chat_refs = self._normalise_chat_refs(chat_refs)
         with self._locked_state():
             task = self._resolve_task_locked(task_id)
             if task is None:
@@ -822,6 +1029,7 @@ class SimulationTaskStore:
                 task,
                 updated_fields=updated_fields,
                 artifact_refs=normalized_artifact_refs,
+                chat_refs=normalized_chat_refs,
                 output=output,
             )
             task.updated_at = _utc_now()
@@ -837,7 +1045,12 @@ class SimulationTaskStore:
                 "due_round": task.due_round,
                 "round_budget": task.round_budget,
                 "deadline_at": task.deadline_at,
+                "deliverable_type": task.deliverable_type,
+                "acceptance_criteria": list(task.acceptance_criteria),
+                "suggested_tools": list(task.suggested_tools),
+                "tool_plan": task.tool_plan,
                 "artifact_count": len(task.artifact_refs),
+                "chat_ref_count": len(task.chat_refs),
             }
             if note:
                 details["note"] = note
@@ -852,6 +1065,7 @@ class SimulationTaskStore:
                     actor=actor or task.assigned_to or task.assigned_by or "system",
                     details=details,
                     artifact_refs=normalized_artifact_refs,
+                    chat_refs=normalized_chat_refs,
                     round_index=round_index,
                 )
             )

@@ -234,6 +234,16 @@ export const startSimulationTask = (simulationId, taskRef, data) => {
 }
 
 /**
+ * Record a generic simulation task status update or progress note
+ * @param {string} simulationId
+ * @param {string} taskRef
+ * @param {Object} data - { actor, status, reason?, output? }
+ */
+export const updateSimulationTaskStatus = (simulationId, taskRef, data) => {
+  return service.post(`/api/simulation/${simulationId}/tasks/${taskRef}/status`, data)
+}
+
+/**
  * Block a simulation task
  * @param {string} simulationId
  * @param {string} taskRef

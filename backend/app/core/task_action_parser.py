@@ -26,7 +26,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 TASK_ACTION_GRAMMAR = """\
-Prefer MCP task tools when they are available: `offer_task`, `accept_task`, `decline_task`, `get_task`, `list_my_tasks`, `start_task`, `block_task`, `complete_task`, and `save_task_artifact`.
+Prefer MCP task tools when they are available: `offer_task`, `accept_task`, `decline_task`, `get_task`, `list_my_tasks`, `start_task`, `update_task_status`, `block_task`, `complete_task`, and `save_task_artifact`.
+Only offer executable work that can be completed inside the simulation with the available MCP tools and current context. Prefer briefs, summaries, analyses, comparisons, memos, recommendations, evidence packs, and report sections over meeting coordination.
+Do not create meeting-only tasks such as "set up a meeting" or "schedule a sync" unless you rewrite them into a concrete deliverable request first.
 If the deliverable is better represented as a file, such as a markdown brief, memo, CSV, JSON, code/config file, or PDF, use `save_task_artifact` first and then `complete_task` with a short summary.
 
 XML task actions are a legacy compatibility fallback only. If you must use them, they are processed by the simulation engine and do not appear in the public post.
@@ -36,6 +38,9 @@ To offer a task to a colleague:
   <title>Short task title</title>
   <assign_to>PERSONA_NAME</assign_to>
   <description>What needs to be done</description>
+    <deliverable_type>Optional: brief|analytics_summary|report_section|...</deliverable_type>
+    <acceptance_criteria>Optional: what a successful deliverable must contain</acceptance_criteria>
+    <tool_plan>Optional: suggested MCP/data tools to use</tool_plan>
   <parent_goal>Optional: related topic or goal</parent_goal>
 </task_action>
 
@@ -48,18 +53,22 @@ To mark one of your assigned tasks as complete:
 To accept, decline, or update the status of a task:
 <task_action type="update_status">
     <issue_key>ABC-123</issue_key>
-    <status>open|declined|in_progress|blocked</status>
+    <status>open|declined|in_progress|blocked|done</status>
     <reason>Optional explanation</reason>
 </task_action>
 
 Legacy compatibility: ``<task_id>`` is still accepted, but new task replies should
 prefer the visible ``<issue_key>`` value.
 
+After a task offer, acceptance, decline, status change, or completion, post a visible public update so the chat history reflects the task lifecycle.
+
 Only include a task_action tag when you genuinely intend to create or update a task. One task_action per message maximum."""
 
 TASK_MCP_PREFERRED_GUIDANCE = """\
 Use MCP task tools for coordination whenever the runtime exposes them. Treat XML `<task_action>` blocks as a fallback path only, not the default workflow.
+Offer concrete deliverables that can be executed in-simulation. If a request is really a meeting or conversation, rewrite it into a brief, summary, memo, analysis, or recommendation deliverable before you offer it as a task.
 If your deliverable would naturally live in a file, such as a markdown brief, memo, notes file, CSV, JSON payload, code/config snippet, or PDF, call `save_task_artifact` before `complete_task`. Use a descriptive filename, the matching media type, and then complete the task with a short summary that references the saved file.
+After you accept, decline, start, update, block, or complete a task, leave a visible public update in the simulation chat so other agents can follow the work.
 """.strip()
 
 # ---------------------------------------------------------------------------
@@ -100,6 +109,9 @@ class ParsedTaskAction:
     title: Optional[str] = None
     assign_to: Optional[str] = None
     description: Optional[str] = None
+    deliverable_type: Optional[str] = None
+    acceptance_criteria: Optional[str] = None
+    tool_plan: Optional[str] = None
     parent_goal: Optional[str] = None
     issue_key: Optional[str] = None
     task_id: Optional[str] = None
@@ -152,6 +164,9 @@ def parse_task_action(content: str) -> Optional[ParsedTaskAction]:
             title=_extract_child("title", body),
             assign_to=_extract_child("assign_to", body),
             description=_extract_child("description", body),
+            deliverable_type=_extract_child("deliverable_type", body),
+            acceptance_criteria=_extract_child("acceptance_criteria", body),
+            tool_plan=_extract_child("tool_plan", body),
             parent_goal=_extract_child("parent_goal", body),
             issue_key=_extract_child("issue_key", body),
             task_id=_extract_child("task_id", body),
@@ -195,6 +210,7 @@ def apply_task_action(
     store: Any,
     *,
     published_text: Optional[str] = None,
+    chat_context: Optional[dict[str, Any]] = None,
     round_index: Optional[int] = None,
     total_rounds: Optional[int] = None,
 ) -> Optional[str]:
@@ -222,6 +238,7 @@ def apply_task_action(
     """
     lifecycle = TaskLifecycleService(simulation_id=simulation_id, store=store)
     normalized_published_text = (published_text or "").strip() or None
+    chat_refs = [chat_context] if chat_context else None
 
     try:
         log_task_pipeline_metric(
@@ -257,6 +274,10 @@ def apply_task_action(
                     if round_index is not None and total_rounds is not None
                     else None
                 ),
+                deliverable_type=parsed.deliverable_type,
+                acceptance_criteria=parsed.acceptance_criteria,
+                tool_plan=parsed.tool_plan,
+                chat_refs=chat_refs,
             )
             logger.info(
                 f"Task offered via legacy XML: {task.issue_key!r} '{task.title}' "
@@ -275,6 +296,12 @@ def apply_task_action(
                 task_ref=parsed.task_ref,
                 actor=agent_name,
                 output=parsed.output or normalized_published_text or "",
+                event_details=(
+                    {"summary": normalized_published_text}
+                    if normalized_published_text
+                    else None
+                ),
+                chat_refs=chat_refs,
                 round_index=round_index,
             )
             logger.info(
@@ -300,6 +327,12 @@ def apply_task_action(
                 status=normalized_status,
                 reason=fallback_reason,
                 output=fallback_output,
+                event_details=(
+                    {"summary": normalized_published_text}
+                    if normalized_published_text
+                    else None
+                ),
+                chat_refs=chat_refs,
                 round_index=round_index,
             )
             logger.info(

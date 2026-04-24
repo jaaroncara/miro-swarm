@@ -111,8 +111,10 @@ def build_task_context_message(
             "  1. Directly addresses the person who assigned the task (tag them by name).",
             "  2. Uses MCP task tools first when they are available in this run.",
             "  3. Falls back to a matching <task_action> XML block only if MCP task tools are unavailable.",
-            "  4. If the deliverable is file-like, such as a markdown brief, memo, CSV, JSON, code/config, or PDF, save it with `save_task_artifact` first using a clear filename and media type.",
-            "  5. When you publish a final report or deliverable, store that same content in the task completion output, or summarize the saved artifact when you complete the task.",
+            "  4. Keeps the work executable inside the simulation. If a request is really a meeting or conversation, decline it or rewrite it into a concrete deliverable.",
+            "  5. If the deliverable is file-like, such as a markdown brief, memo, CSV, JSON, code/config, or PDF, save it with `save_task_artifact` first using a clear filename and media type.",
+            "  6. After you accept, decline, update, block, or complete a task, leave a visible public update in the simulation chat so other agents can follow the work.",
+            "  7. When you publish a final report or deliverable, store that same content in the task completion output, or summarize the saved artifact when you complete the task.",
             "Do NOT post about any other topic until you have responded to every task listed here.",
             "",
         ]
@@ -143,6 +145,14 @@ def build_task_context_message(
             lines.append(f"  Due round     : {task.due_round}")
         if task.round_budget is not None:
             lines.append(f"  Round budget  : {task.round_budget}")
+        if getattr(task, "deliverable_type", None):
+            lines.append(f"  Deliverable   : {task.deliverable_type}")
+        if getattr(task, "acceptance_criteria", None):
+            lines.append(f"  Acceptance    : {task.acceptance_criteria[0]}")
+        if getattr(task, "suggested_tools", None):
+            lines.append(f"  Suggested tools : {', '.join(task.suggested_tools)}")
+        if getattr(task, "tool_plan", None):
+            lines.append(f"  Tool plan    : {task.tool_plan}")
         time_window = _describe_task_time_window(
             task,
             current_round=current_round,
@@ -160,7 +170,7 @@ def build_task_context_message(
         if task.status == "offered":
             lines.append(
                 f"  ACTION REQUIRED: Decide whether to accept or decline this offer before you do other work. "
-                f"Prefer MCP `accept_task` or `decline_task` with issue_key {issue_key}."
+                f"Prefer MCP `accept_task` or `decline_task` with issue_key {issue_key}, then acknowledge the decision publicly in chat."
             )
             lines.append(
                 f"  XML fallback if MCP task tools are unavailable:\n"
@@ -180,7 +190,7 @@ def build_task_context_message(
             lines.append(
                 f"  ACTION REQUIRED: Reply to {assigner} acknowledging this task and "
                 f"either start working on it or complete it immediately if you can. "
-                f"Prefer MCP `start_task` or `complete_task`. If the finished deliverable is file-like, save it with `save_task_artifact` before `complete_task`, using a descriptive filename such as `brief.md` or `results.json`."
+                f"Prefer MCP `start_task`, `update_task_status`, or `complete_task`. If the finished deliverable is file-like, save it with `save_task_artifact` before `complete_task`, using a descriptive filename such as `brief.md` or `results.json`."
             )
             lines.append(
                 f"  XML fallback if MCP task tools are unavailable:\n"
@@ -198,7 +208,7 @@ def build_task_context_message(
         elif task.status == "in_progress":
             lines.append(
                 f"  ACTION REQUIRED: Post an update to {assigner} on the progress of "
-                f"this task, or complete it if the work is done. Prefer MCP `complete_task` when possible. If the deliverable is a file, save it with `save_task_artifact` first and then mention the saved filename in the completion summary."
+                f"this task, or complete it if the work is done. Prefer MCP `update_task_status` for progress notes and `complete_task` when possible. If the deliverable is a file, save it with `save_task_artifact` first and then mention the saved filename in the completion summary."
             )
             lines.append(
                 f"  XML fallback if MCP task tools are unavailable: end your post with a "

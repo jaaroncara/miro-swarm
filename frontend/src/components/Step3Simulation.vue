@@ -697,12 +697,17 @@ const formatTaskStatus = (status) => {
 const getTaskEventLabel = (eventType) => {
   const labels = {
     created: 'Offered',
+    offered: 'Offered',
     accepted: 'Accepted',
     declined: 'Declined',
     started: 'Started',
     blocked: 'Blocked',
     completed: 'Completed',
     expired: 'Expired',
+    progress_updated: 'Progress',
+    status_updated: 'Updated',
+    public_update: 'Chat Update',
+    artifact_saved: 'Artifact',
     artifact_added: 'Artifact',
     artifact_removed: 'Artifact',
     updated: 'Updated'
@@ -713,12 +718,17 @@ const getTaskEventLabel = (eventType) => {
 const getTaskEventClass = (eventType) => {
   const classes = {
     created: 'badge-task-offered',
+    offered: 'badge-task-offered',
     accepted: 'badge-task-active',
     started: 'badge-task-active',
+    progress_updated: 'badge-task-active',
     blocked: 'badge-task-blocked',
     completed: 'badge-task-done',
     declined: 'badge-task-muted',
     expired: 'badge-task-muted',
+    public_update: 'badge-task-meta',
+    status_updated: 'badge-task-meta',
+    artifact_saved: 'badge-task-meta',
     artifact_added: 'badge-task-meta',
     artifact_removed: 'badge-task-meta',
     updated: 'badge-task-meta'
@@ -774,10 +784,12 @@ const getTaskEventSummary = (entry) => {
   const details = entry?.details || {}
   return (
     details.summary ||
+    details.note ||
     details.reason ||
     details.blocked_reason ||
     details.output ||
     details.message ||
+    entry?.chat_refs?.[0]?.snippet ||
     entry.task_title ||
     ''
   )

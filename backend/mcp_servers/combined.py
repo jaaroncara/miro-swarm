@@ -44,6 +44,7 @@ for tool_name, tool_fn in [
     ("get_task", task_tools.get_task),
     ("list_my_tasks", task_tools.list_my_tasks),
     ("start_task", task_tools.start_task),
+    ("update_task_status", task_tools.update_task_status),
     ("block_task", task_tools.block_task),
     ("complete_task", task_tools.complete_task),
     ("save_task_artifact", task_tools.save_task_artifact),
