@@ -473,7 +473,14 @@ def test_task_server_exposes_offer_lifecycle_tools(
             actor="Mallory",
         )
     )
-    assert "Task lookup rejected:" in outsider_lookup
+    outsider_lookup_payload = json.loads(outsider_lookup)
+    assert outsider_lookup_payload["success"] is False
+    assert outsider_lookup_payload["tool"] == "get_task"
+    assert outsider_lookup_payload["message"] == "Task lookup rejected."
+    assert outsider_lookup_payload["issue_key"] == "TEST-1"
+    assert outsider_lookup_payload["actor"] == "Mallory"
+    assert outsider_lookup_payload["error"]["type"] == "authorization_error"
+    assert "not allowed to view task" in outsider_lookup_payload["error"]["message"]
 
     restarted_message = asyncio.run(
         task_server.start_task(
