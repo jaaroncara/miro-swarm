@@ -64,7 +64,61 @@
                 :id="`task-details-${task.id}`"
                 class="tp-task-body"
               >
-                <div class="tp-task-summary">{{ taskSummaryText(task) }}</div>
+                <div class="tp-task-headline">
+                  <h4 class="tp-task-title">{{ task.title || 'Untitled Task' }}</h4>
+                  <p v-if="task.description" class="tp-task-description">{{ task.description }}</p>
+                </div>
+
+                <div class="tp-lifecycle" role="group" aria-label="Task lifecycle">
+                  <div
+                    v-for="step in lifecycleSteps(task)"
+                    :key="`${task.id}-${step.key}`"
+                    class="tp-lifecycle-step"
+                    :class="`tp-step-${step.state}`"
+                  >
+                    <span class="tp-step-dot" aria-hidden="true"></span>
+                    <span class="tp-step-label">{{ step.label }}</span>
+                  </div>
+                </div>
+
+                <div class="tp-jira-grid">
+                  <div class="tp-jira-field">
+                    <span class="tp-detail-label">Issue</span>
+                    <span>{{ task.issue_key || task.id }}</span>
+                  </div>
+                  <div class="tp-jira-field">
+                    <span class="tp-detail-label">Reporter</span>
+                    <span>{{ task.assigned_by || 'Unknown' }}</span>
+                  </div>
+                  <div class="tp-jira-field">
+                    <span class="tp-detail-label">Assignee</span>
+                    <span>{{ task.assigned_to || 'Unassigned' }}</span>
+                  </div>
+                  <div class="tp-jira-field">
+                    <span class="tp-detail-label">Status</span>
+                    <span>{{ statusLabel(task.status) }}</span>
+                  </div>
+                  <div class="tp-jira-field" v-if="task.deadline?.due_round !== null && task.deadline?.due_round !== undefined">
+                    <span class="tp-detail-label">Due Round</span>
+                    <span>R{{ task.deadline.due_round }}</span>
+                  </div>
+                  <div class="tp-jira-field" v-if="task.deadline?.remaining_rounds !== null && task.deadline?.remaining_rounds !== undefined">
+                    <span class="tp-detail-label">Remaining</span>
+                    <span>{{ formatRemainingRounds(task.deadline.remaining_rounds) }}</span>
+                  </div>
+                  <div class="tp-jira-field" v-if="task.deadline?.deadline_at">
+                    <span class="tp-detail-label">Due Date</span>
+                    <span>{{ formatDate(task.deadline.deadline_at) }}</span>
+                  </div>
+                  <div class="tp-jira-field" v-if="task.created_at">
+                    <span class="tp-detail-label">Created</span>
+                    <span>{{ formatDate(task.created_at) }}</span>
+                  </div>
+                  <div class="tp-jira-field" v-if="task.updated_at">
+                    <span class="tp-detail-label">Updated</span>
+                    <span>{{ formatDate(task.updated_at) }}</span>
+                  </div>
+                </div>
 
                 <div
                   v-if="hasTaskDetails(task)"
@@ -107,6 +161,23 @@
                     <span class="tp-detail-label">Public update</span>
                     <span>{{ latestChatSnippet(task) }}</span>
                   </div>
+                </div>
+
+                <div v-if="recentEvents(task).length" class="tp-task-events">
+                  <span class="tp-detail-label">Recent Events</span>
+                  <ul class="tp-event-list">
+                    <li
+                      v-for="event in recentEvents(task)"
+                      :key="event.event_id"
+                      class="tp-event-item"
+                    >
+                      <span class="tp-event-main">
+                        <strong>{{ eventLabel(event.event_type) }}</strong>
+                        <span v-if="event.actor"> by {{ event.actor }}</span>
+                      </span>
+                      <span class="tp-event-meta">{{ formatDate(event.created_at) }}</span>
+                    </li>
+                  </ul>
                 </div>
 
                 <div class="tp-task-actions">
@@ -259,6 +330,115 @@ const statusLabel = (status) => {
     expired: 'Expired'
   }
   return labels[status] || status
+}
+
+const formatDate = (value) => {
+  if (!value) {
+    return 'N/A'
+  }
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value)
+  }
+  return parsed.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+const formatRemainingRounds = (value) => {
+  const numeric = Number(value)
+  if (Number.isNaN(numeric)) {
+    return String(value)
+  }
+  if (numeric <= 0) {
+    return 'Due now'
+  }
+  return `${numeric} round${numeric === 1 ? '' : 's'}`
+}
+
+const eventLabel = (eventType) => {
+  const labels = {
+    offered: 'Offered',
+    accepted: 'Accepted',
+    declined: 'Declined',
+    started: 'Started',
+    blocked: 'Blocked',
+    completed: 'Completed',
+    progress_updated: 'Progress Updated',
+    reopened: 'Reopened',
+    expired: 'Expired',
+    artifact_saved: 'Deliverable Saved'
+  }
+  return labels[eventType] || formatDeliverableLabel(eventType)
+}
+
+const recentEvents = (task) => {
+  const events = Array.isArray(task?.events) ? task.events : []
+  return events.slice(-4).reverse()
+}
+
+const lifecycleSteps = (task) => {
+  const status = task?.status || 'open'
+  const steps = [
+    { key: 'offer', label: 'Offered', state: 'pending' },
+    { key: 'acceptance', label: 'Accepted', state: 'pending' },
+    { key: 'execution', label: 'In Progress', state: 'pending' },
+    { key: 'closure', label: 'Completed', state: 'pending' }
+  ]
+
+  if (status === 'offered') {
+    steps[0].state = 'current'
+    return steps
+  }
+
+  steps[0].state = 'done'
+
+  if (status === 'declined') {
+    steps[1].label = 'Declined'
+    steps[1].state = 'current'
+    steps[2].label = 'Not Started'
+    steps[2].state = 'skipped'
+    steps[3].label = 'Closed'
+    steps[3].state = 'skipped'
+    return steps
+  }
+
+  steps[1].state = 'done'
+
+  if (status === 'open') {
+    steps[1].state = 'current'
+    return steps
+  }
+
+  if (status === 'in_progress') {
+    steps[2].state = 'current'
+    return steps
+  }
+
+  if (status === 'blocked') {
+    steps[2].label = 'Blocked'
+    steps[2].state = 'blocked'
+    return steps
+  }
+
+  if (status === 'done') {
+    steps[2].state = 'done'
+    steps[3].state = 'current'
+    return steps
+  }
+
+  if (status === 'expired') {
+    steps[2].state = 'done'
+    steps[3].label = 'Expired'
+    steps[3].state = 'blocked'
+    return steps
+  }
+
+  return steps
 }
 
 const taskSummaryText = (task) => {
@@ -748,6 +928,109 @@ onUnmounted(() => {
   padding: 0 14px 14px;
 }
 
+.tp-task-headline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tp-task-title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.tp-task-description {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.tp-lifecycle {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tp-lifecycle-step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tp-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.tp-step-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tp-step-done {
+  border-color: rgba(76, 175, 80, 0.45);
+  background: rgba(76, 175, 80, 0.1);
+}
+
+.tp-step-done .tp-step-dot,
+.tp-step-current .tp-step-dot {
+  background: var(--success-color, #4CAF50);
+}
+
+.tp-step-current {
+  border-color: rgba(33, 150, 243, 0.45);
+  background: rgba(33, 150, 243, 0.12);
+}
+
+.tp-step-current .tp-step-label {
+  color: var(--text-primary);
+}
+
+.tp-step-blocked {
+  border-color: rgba(244, 67, 54, 0.45);
+  background: rgba(244, 67, 54, 0.12);
+}
+
+.tp-step-blocked .tp-step-dot {
+  background: var(--error-color, #F44336);
+}
+
+.tp-step-skipped {
+  opacity: 0.55;
+}
+
+.tp-jira-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.tp-jira-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .tp-task-actions,
 .tp-action-header {
   display: flex;
@@ -853,6 +1136,43 @@ onUnmounted(() => {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+}
+
+.tp-task-events {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tp-event-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tp-event-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tp-event-main {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tp-event-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .tp-task-details {
@@ -1042,6 +1362,14 @@ onUnmounted(() => {
   .tp-primary-btn,
   .tp-ghost-btn {
     width: 100%;
+  }
+
+  .tp-lifecycle {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tp-jira-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>
