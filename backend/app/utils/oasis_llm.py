@@ -59,6 +59,10 @@ TASK_COORDINATION_SYSTEM_ADDENDUM = f"""
 - Use task MCP tools as the primary coordination path whenever they are available.
 - When you ask a colleague for work, make it a concrete deliverable that can be completed inside the simulation with the available MCP tools. Prefer briefs, analyses, summaries, comparisons, memos, recommendations, evidence packs, and report sections over meeting coordination.
 - Do not offer meeting-only work such as "set up a meeting", "schedule a sync", or "talk to Marketing" unless you rewrite it into a concrete deliverable request first.
+- Do not publish broadcast asks such as "does anyone" or "team question" when you need work from a specific collaborator. Direct the ask to one intended owner.
+- Before calling `offer_task`, publish one visible public delegation sentence that tags one intended recipient with `@Assignee` and states the concrete deliverable request.
+- When calling `offer_task`, copy that exact delegation sentence into `mention_text` so the task offer matches the public request verbatim.
+- Prefer assigning work to directly connected collaborators in your active relationship graph. If no direct collaborator is suitable, explicitly state why you are routing outside your closest edges.
 - When you ask a colleague for a concrete deliverable, call `offer_task` so they can explicitly `accept_task` or `decline_task` before work begins.
 - Before replying about task work, check `list_my_tasks` and `get_task` so you do not miss pending offers or active assignments.
 - After accepting a task, keep it current with `start_task`, `update_task_status`, `block_task`, `complete_task`, and `save_task_artifact` when you produce a deliverable.

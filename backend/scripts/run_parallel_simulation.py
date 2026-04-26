@@ -184,6 +184,7 @@ from app.core.task_round_processor import (
     load_mention_aliases,
     process_task_actions_for_round,
 )
+from app.core.task_enforcement import run_round_enforcement
 
 try:
     from camel.models import ModelFactory
@@ -1397,6 +1398,14 @@ async def run_twitter_simulation(
             total_rounds=total_rounds,
         )
 
+        run_round_enforcement(
+            simulation_id=config.get("simulation_id", "unknown"),
+            store=_twitter_task_store,
+            phase="pre_step",
+            current_round=round_num + 1,
+            total_rounds=total_rounds,
+        )
+
         # Record round start regardless of whether there are active agents
         if action_logger:
             action_logger.log_round_start(round_num + 1, simulated_hour)
@@ -1439,6 +1448,14 @@ async def run_twitter_simulation(
             total_rounds=total_rounds,
             mention_aliases=mention_aliases,
             structured_offer_pairs=structured_offer_pairs,
+        )
+
+        run_round_enforcement(
+            simulation_id=config.get("simulation_id", "unknown"),
+            store=_twitter_task_store,
+            phase="post_step",
+            current_round=round_num + 1,
+            total_rounds=total_rounds,
         )
 
         round_action_count = 0
@@ -1655,6 +1672,14 @@ async def run_reddit_simulation(
             total_rounds=total_rounds,
         )
 
+        run_round_enforcement(
+            simulation_id=config.get("simulation_id", "unknown"),
+            store=_reddit_task_store,
+            phase="pre_step",
+            current_round=round_num + 1,
+            total_rounds=total_rounds,
+        )
+
         # Record round start regardless of whether there are active agents
         if action_logger:
             action_logger.log_round_start(round_num + 1, simulated_hour)
@@ -1697,6 +1722,14 @@ async def run_reddit_simulation(
             total_rounds=total_rounds,
             mention_aliases=mention_aliases,
             structured_offer_pairs=structured_offer_pairs,
+        )
+
+        run_round_enforcement(
+            simulation_id=config.get("simulation_id", "unknown"),
+            store=_reddit_task_store,
+            phase="post_step",
+            current_round=round_num + 1,
+            total_rounds=total_rounds,
         )
 
         round_action_count = 0

@@ -121,6 +121,16 @@ class Config:
     OASIS_SIMULATION_DATA_DIR = os.path.join(UPLOAD_FOLDER, "simulations")
     ALLOW_BROWSER_TASK_MUTATIONS = _get_bool_env("ALLOW_BROWSER_TASK_MUTATIONS", False)
     TASK_EXECUTION_MODE = _get_env_or_default("TASK_EXECUTION_MODE", "compatibility")
+    TASK_ROUND_ENFORCEMENT_MODE = _get_env_or_default(
+        "TASK_ROUND_ENFORCEMENT_MODE", "enforce"
+    )
+    TASK_ROUND_ENFORCEMENT_GRACE_ROUNDS = int(
+        os.environ.get("TASK_ROUND_ENFORCEMENT_GRACE_ROUNDS", "0")
+    )
+    TASK_DEFAULT_ROUND_BUDGET = int(os.environ.get("TASK_DEFAULT_ROUND_BUDGET", "3"))
+    TASK_ROUND_ENFORCEMENT_ACTION = _get_env_or_default(
+        "TASK_ROUND_ENFORCEMENT_ACTION", "block"
+    )
 
     # OASIS platform available actions
     OASIS_TWITTER_ACTIONS = [
@@ -191,6 +201,44 @@ class Config:
     @classmethod
     def task_mcp_required(cls) -> bool:
         return cls.task_execution_mode() == "required_mcp"
+
+    @classmethod
+    def task_round_enforcement_mode(cls) -> str:
+        raw_mode = str(getattr(cls, "TASK_ROUND_ENFORCEMENT_MODE", "disabled") or "")
+        normalized = raw_mode.strip().lower().replace("-", "_")
+        if normalized in {"disabled", "warn", "enforce"}:
+            return normalized
+        return "disabled"
+
+    @classmethod
+    def task_round_enforcement_enabled(cls) -> bool:
+        return cls.task_round_enforcement_mode() in {"warn", "enforce"}
+
+    @classmethod
+    def task_round_enforcement_grace_rounds(cls) -> int:
+        raw_value = getattr(cls, "TASK_ROUND_ENFORCEMENT_GRACE_ROUNDS", 0)
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            return 0
+        return max(parsed, 0)
+
+    @classmethod
+    def task_round_enforcement_action(cls) -> str:
+        raw_action = str(getattr(cls, "TASK_ROUND_ENFORCEMENT_ACTION", "expire") or "")
+        normalized = raw_action.strip().lower().replace("-", "_")
+        if normalized in {"expire", "block"}:
+            return normalized
+        return "expire"
+
+    @classmethod
+    def task_default_round_budget(cls) -> int:
+        raw_value = getattr(cls, "TASK_DEFAULT_ROUND_BUDGET", 3)
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            return 3
+        return max(parsed, 1)
 
     @classmethod
     def validate(cls):

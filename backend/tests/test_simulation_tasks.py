@@ -31,6 +31,7 @@ from app.core.task_action_parser import (
     apply_task_action,
 )
 from app.core.task_context_injector import build_task_context_message
+from app.core.task_enforcement import run_round_enforcement
 from app.core.task_lifecycle import (
     TaskAuthorizationError,
     TaskLifecycleError,
@@ -1199,8 +1200,8 @@ def test_phase_four_lifecycle_defaults_round_metadata_from_run_state(
     )
 
     assert offered.created_round == 4
-    assert offered.due_round == 9
-    assert offered.round_budget == 5
+    assert offered.due_round == 7
+    assert offered.round_budget == 3
     assert offered.events[0].round_index == 4
 
     notifications = store.list_notifications(recipient="Bob", delivered=False)
@@ -1228,8 +1229,8 @@ def test_phase_four_xml_actions_stamp_round_metadata(simulation_root: Path):
     offered = store.get_task(offered_task_id)
     assert offered is not None
     assert offered.created_round == 4
-    assert offered.due_round == 7
-    assert offered.round_budget == 3
+    assert offered.due_round == 5
+    assert offered.round_budget == 1
 
     accepted_task_id = apply_task_action(
         ParsedTaskAction(
@@ -1336,6 +1337,8 @@ def test_task_guidance_encourages_saving_file_like_artifacts(simulation_root: Pa
     assert "results.json" in context_message
     assert "save_task_artifact" in TASK_COORDINATION_SYSTEM_ADDENDUM
     assert "markdown brief" in TASK_COORDINATION_SYSTEM_ADDENDUM
+    assert "Do not publish broadcast asks" in TASK_COORDINATION_SYSTEM_ADDENDUM
+    assert "directly connected collaborators" in TASK_COORDINATION_SYSTEM_ADDENDUM
     assert "save_task_artifact" in TASK_MCP_PREFERRED_GUIDANCE
     assert "JSON payload" in TASK_MCP_PREFERRED_GUIDANCE
 
@@ -1448,6 +1451,8 @@ def test_phase_three_processes_mention_driven_offer(simulation_root: Path):
     assert offered.assigned_by == "Alice"
     assert offered.assigned_to == "Bob"
     assert offered.created_round == 4
+    assert offered.due_round == 5
+    assert offered.round_budget == 1
     assert offered.mention_context["post_id"] == 11
     assert offered.mention_context["trace_rowid"] == 17
     assert (
@@ -1538,6 +1543,91 @@ def test_phase_three_public_issue_key_updates_are_linked_to_tasks(
     assert updated.events[-1].details["summary"].startswith("@Alice")
     assert updated.events[-1].chat_refs[0].post_id == "27"
     assert updated.chat_refs[-1].snippet.startswith("@Alice")
+
+
+def test_phase_three_public_issue_key_updates_implicitly_progress_task_status(
+    simulation_root: Path,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.offer_task(
+        title="Compile media efficiency brief",
+        description="Provide a concise analysis with spend and ROAS deltas.",
+        assigned_to="Bob",
+        actor="Alice",
+        origin="mcp_offer",
+    )
+
+    process_task_actions_for_round(
+        actual_actions=[
+            {
+                "trace_rowid": 41,
+                "agent_id": 2,
+                "agent_name": "Bob",
+                "action_type": "CREATE_POST",
+                "action_args": {
+                    "content": f"@Alice {task.issue_key} accepted. Starting now and pulling the key metrics.",
+                    "post_id": 31,
+                },
+            }
+        ],
+        simulation_id="sim_test",
+        store=store,
+        platform="twitter",
+        round_index=3,
+        mention_aliases={"alice": "Alice"},
+        structured_offer_pairs=set(),
+    )
+
+    progressed = store.get_task(task.issue_key)
+    assert progressed is not None
+    assert progressed.status == "in_progress"
+    assert any(event.event_type == "accepted" for event in progressed.events)
+    assert any(event.event_type == "started" for event in progressed.events)
+
+
+def test_phase_three_public_completion_cues_can_finish_task(
+    simulation_root: Path,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.create_task(
+        title="Finalize campaign spend summary",
+        description="Prepare the final summary for leadership.",
+        assigned_to="Bob",
+        actor="Alice",
+    )
+    lifecycle.start_task(task.issue_key, actor="Bob", reason="Working on summary")
+
+    process_task_actions_for_round(
+        actual_actions=[
+            {
+                "trace_rowid": 52,
+                "agent_id": 2,
+                "agent_name": "Bob",
+                "action_type": "CREATE_POST",
+                "action_args": {
+                    "content": f"@Alice {task.issue_key} completed and shared the final brief with spend and ROAS highlights.",
+                    "post_id": 36,
+                },
+            }
+        ],
+        simulation_id="sim_test",
+        store=store,
+        platform="twitter",
+        round_index=4,
+        mention_aliases={"alice": "Alice"},
+        structured_offer_pairs=set(),
+    )
+
+    completed = store.get_task(task.issue_key)
+    assert completed is not None
+    assert completed.status == "done"
+    assert completed.output is not None
+    assert "completed and shared the final brief" in completed.output
+    assert any(event.event_type == "completed" for event in completed.events)
 
 
 def test_phase_three_skips_mention_offer_when_structured_offer_exists_in_round(
@@ -2436,3 +2526,320 @@ def test_phase_eight_emits_metrics_for_migration_compat_expiry_and_packaging(
     assert any("name=expired_tasks" in message for message in metric_messages)
     assert any("name=packaging_failure" in message for message in metric_messages)
     assert any("name=packaging_summary" in message for message in metric_messages)
+
+
+def test_round_enforcement_warn_mode_reports_violation_without_mutation(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_MODE", "warn")
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+    offered = lifecycle.offer_task(
+        title="Warn-only overdue offer",
+        description="Should remain offered in warn mode.",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=2,
+        due_round=2,
+        round_budget=0,
+    )
+
+    result = run_round_enforcement(
+        simulation_id="sim_test",
+        store=store,
+        phase="pre_step",
+        current_round=3,
+        total_rounds=6,
+    )
+
+    refreshed = store.get_task(offered.issue_key)
+    assert refreshed is not None
+    assert refreshed.status == "offered"
+    assert result.mode == "warn"
+    assert result.violation_count == 1
+    assert result.applied_count == 0
+    assert offered.issue_key in result.violating_issue_keys
+
+
+def test_round_enforcement_expires_non_executable_meeting_tasks(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_MODE", "enforce")
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    task = store.create_task(
+        title="Set up a meeting with Marketing",
+        description="Schedule a sync to talk through the campaign.",
+        assigned_by="Alice",
+        assigned_to="Bob",
+        status="open",
+    )
+
+    result = run_round_enforcement(
+        simulation_id="sim_test",
+        store=store,
+        phase="pre_step",
+        current_round=3,
+        total_rounds=6,
+    )
+
+    expired = store.get_task(task.issue_key)
+    assert expired is not None
+    assert expired.status == "expired"
+    assert result.applied_count == 1
+    assert task.issue_key in result.violating_issue_keys
+
+
+def test_round_enforcement_enforce_mode_expires_overdue_tasks(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_MODE", "enforce")
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+    offered = lifecycle.offer_task(
+        title="Enforced overdue offer",
+        description="Should expire when overdue.",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=2,
+        due_round=2,
+        round_budget=0,
+    )
+
+    result = run_round_enforcement(
+        simulation_id="sim_test",
+        store=store,
+        phase="post_step",
+        current_round=3,
+        total_rounds=6,
+    )
+
+    refreshed = store.get_task(offered.issue_key)
+    assert refreshed is not None
+    assert refreshed.status == "expired"
+    assert result.mode == "enforce"
+    assert result.violation_count == 1
+    assert result.applied_count == 1
+    assert result.failed_count == 0
+
+
+def test_round_enforcement_grace_rounds_delay_violation(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_MODE", "enforce")
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_GRACE_ROUNDS", 1)
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+    offered = lifecycle.offer_task(
+        title="Grace-window offer",
+        description="Should not violate until grace is exceeded.",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=2,
+        due_round=2,
+        round_budget=0,
+    )
+
+    within_grace = run_round_enforcement(
+        simulation_id="sim_test",
+        store=store,
+        phase="pre_step",
+        current_round=3,
+        total_rounds=6,
+    )
+    still_offered = store.get_task(offered.issue_key)
+    assert still_offered is not None
+    assert still_offered.status == "offered"
+    assert within_grace.violation_count == 0
+    assert within_grace.applied_count == 0
+
+    beyond_grace = run_round_enforcement(
+        simulation_id="sim_test",
+        store=store,
+        phase="post_step",
+        current_round=4,
+        total_rounds=6,
+    )
+    expired = store.get_task(offered.issue_key)
+    assert expired is not None
+    assert expired.status == "expired"
+    assert beyond_grace.violation_count == 1
+    assert beyond_grace.applied_count == 1
+
+
+def test_round_enforcement_block_action_sets_blocked_status(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_MODE", "enforce")
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_ACTION", "block")
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+    offered = lifecycle.offer_task(
+        title="Overdue block action",
+        description="Offer accepted then blocked by enforcement action.",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=2,
+        due_round=2,
+        round_budget=0,
+    )
+    lifecycle.accept_task(offered.issue_key, actor="Bob", round_index=2)
+
+    result = run_round_enforcement(
+        simulation_id="sim_test",
+        store=store,
+        phase="post_step",
+        current_round=3,
+        total_rounds=6,
+    )
+
+    blocked = store.get_task(offered.issue_key)
+    assert blocked is not None
+    assert blocked.status == "blocked"
+    assert result.applied_count == 1
+    assert result.failed_count == 0
+
+
+def test_phase_three_single_active_task_public_update_infers_progress_without_issue_key(
+    simulation_root: Path,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.offer_task(
+        title="Prepare KPI brief",
+        description="Draft a concise KPI brief for Alice.",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=2,
+        due_round=5,
+        round_budget=3,
+    )
+
+    process_task_actions_for_round(
+        actual_actions=[
+            {
+                "trace_rowid": 77,
+                "agent_id": 2,
+                "agent_name": "Bob",
+                "action_type": "CREATE_POST",
+                "action_args": {
+                    "content": "@Alice I am pulling the KPI inputs now and drafting the brief.",
+                    "post_id": 48,
+                },
+            }
+        ],
+        simulation_id="sim_test",
+        store=store,
+        platform="twitter",
+        round_index=3,
+        total_rounds=6,
+        mention_aliases={"alice": "Alice"},
+        structured_offer_pairs=set(),
+    )
+
+    updated = store.get_task(task.issue_key)
+    assert updated is not None
+    assert updated.status == "in_progress"
+    assert any(event.event_type == "accepted" for event in updated.events)
+    assert any(event.event_type == "started" for event in updated.events)
+    assert updated.chat_refs[-1].snippet.startswith("@Alice I am pulling")
+
+
+def test_phase_three_single_active_in_progress_task_adds_progress_note_without_issue_key(
+    simulation_root: Path,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.create_task(
+        title="Write rollout memo",
+        description="Draft the rollout memo for Alice.",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=2,
+        due_round=5,
+        round_budget=3,
+    )
+    lifecycle.start_task(task.issue_key, actor="Bob", reason="Started memo")
+
+    process_task_actions_for_round(
+        actual_actions=[
+            {
+                "trace_rowid": 78,
+                "agent_id": 2,
+                "agent_name": "Bob",
+                "action_type": "CREATE_POST",
+                "action_args": {
+                    "content": "@Alice Draft is halfway done and I am tightening the recommendation section.",
+                    "post_id": 49,
+                },
+            }
+        ],
+        simulation_id="sim_test",
+        store=store,
+        platform="twitter",
+        round_index=4,
+        total_rounds=6,
+        mention_aliases={"alice": "Alice"},
+        structured_offer_pairs=set(),
+    )
+
+    updated = store.get_task(task.issue_key)
+    assert updated is not None
+    assert updated.status == "in_progress"
+    assert updated.events[-1].event_type == "progress_updated"
+    assert updated.events[-1].details["note"].startswith("@Alice Draft is halfway done")
+
+
+def test_round_enforcement_idempotency_guard_skips_repeat_action_same_round(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_MODE", "enforce")
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_ACTION", "block")
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+    offered = lifecycle.offer_task(
+        title="Repeat guard",
+        description="Second pass same round should be idempotent.",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=2,
+        due_round=2,
+        round_budget=0,
+    )
+    lifecycle.accept_task(offered.issue_key, actor="Bob", round_index=2)
+
+    first_pass = run_round_enforcement(
+        simulation_id="sim_test",
+        store=store,
+        phase="pre_step",
+        current_round=3,
+        total_rounds=6,
+    )
+    second_pass = run_round_enforcement(
+        simulation_id="sim_test",
+        store=store,
+        phase="post_step",
+        current_round=3,
+        total_rounds=6,
+    )
+
+    current = store.get_task(offered.issue_key)
+    assert current is not None
+    assert current.status == "blocked"
+    assert first_pass.applied_count == 1
+    assert second_pass.applied_count == 0
+    assert second_pass.idempotent_skip_count == 1
+    assert second_pass.failed_count == 0

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from ..config import Config
 from .simulation_task_store import (
     TASK_STATUS_BLOCKED,
     TASK_STATUS_DECLINED,
@@ -148,6 +149,30 @@ def _looks_like_meeting_only_request(
     if any(pattern.search(haystack) for pattern in _MEETING_ONLY_PATTERNS):
         return not (deliverable_text.strip() or _has_deliverable_hint(haystack))
     return False
+
+
+def task_request_requires_rewrite(
+    *,
+    title: str,
+    description: str,
+    deliverable_type: Optional[str] = None,
+    acceptance_criteria: Any = None,
+    tool_plan: Optional[str] = None,
+) -> bool:
+    deliverable_hints = " ".join(
+        item
+        for item in [
+            _normalize_text(deliverable_type),
+            _normalize_text(tool_plan),
+            " ".join(_split_list_text(acceptance_criteria)),
+        ]
+        if item
+    )
+    return _looks_like_meeting_only_request(
+        _normalize_text(title) or "",
+        _normalize_text(description) or "",
+        deliverable_hints,
+    )
 
 
 def _infer_acceptance_criteria(deliverable_type: str) -> list[str]:
@@ -931,7 +956,19 @@ class TaskLifecycleService:
                     normalized_created_round + normalized_round_budget
                 )
             else:
-                normalized_due_round = state_total_rounds
+                default_round_budget = Config.task_default_round_budget()
+                if normalized_created_round is not None:
+                    normalized_round_budget = default_round_budget
+                    normalized_due_round = (
+                        normalized_created_round + default_round_budget
+                    )
+                    if state_total_rounds is not None:
+                        normalized_due_round = min(
+                            normalized_due_round,
+                            state_total_rounds,
+                        )
+                else:
+                    normalized_due_round = state_total_rounds
 
         if (
             normalized_created_round is None

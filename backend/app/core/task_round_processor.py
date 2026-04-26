@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from ..config import Config
 from .simulation_task_store import TERMINAL_TASK_STATUSES
+from .task_context_injector import task_requires_agent_response
 from .task_observability import log_task_pipeline_metric
 from .task_action_parser import apply_task_action, parse_task_action, strip_task_action
 from .task_lifecycle import (
@@ -24,6 +25,23 @@ _GENERIC_MENTION_TOKENS = {"all", "everyone", "everybody", "team"}
 _MENTION_TOKEN_RE = re.compile(r"(?<!\w)@(?P<handle>[A-Za-z0-9_][A-Za-z0-9_.-]{0,63})")
 _MENTION_REFERENCE_RE = re.compile(r"@[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}")
 _ISSUE_KEY_REFERENCE_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,9}-[1-9]\d*\b")
+_COMPLETION_CUE_PATTERNS = (
+    re.compile(
+        r"\b(?:done|completed|finished|delivered|finalized|finalised)\b", re.IGNORECASE
+    ),
+    re.compile(r"\b(?:shared|published|posted|uploaded|attached)\b", re.IGNORECASE),
+    re.compile(
+        r"\bfinal\s+(?:brief|report|summary|deliverable|version|draft)\b", re.IGNORECASE
+    ),
+)
+_NEGATED_COMPLETION_PATTERN = re.compile(
+    r"\b(?:not|isn't|isnt|wasn't|wasnt|haven't|havent|hasn't|hasnt|didn't|didnt)\s+(?:done|complete|completed|finished|ready)\b",
+    re.IGNORECASE,
+)
+_PARTIAL_COMPLETION_PATTERN = re.compile(
+    r"\b(?:halfway|partly|partially|almost|nearly)\s+(?:done|complete|completed|finished|ready)\b",
+    re.IGNORECASE,
+)
 _REQUEST_ANYWHERE_PATTERNS = (
     re.compile(r"\b(?:can|could|would|will)\s+you\b", re.IGNORECASE),
     re.compile(r"\bplease\b", re.IGNORECASE),
@@ -43,6 +61,12 @@ _REQUEST_AFTER_MENTION_PATTERNS = (
     ),
     re.compile(r"^\s*(?:[,:\-]\s*)?(?:i|we)\s+need\s+you\s+to\b", re.IGNORECASE),
     re.compile(r"^\s*(?:[,:\-]\s*)?need\s+you\s+to\b", re.IGNORECASE),
+)
+_NON_DELEGATION_STATUS_AFTER_MENTION_PATTERNS = (
+    re.compile(
+        r"^\s*(?:[,:\-]\s*)?(?:draft|brief|memo|summary|analysis|report|outline|plan|review)\s+(?:is|was|looks|seems|feels)\b",
+        re.IGNORECASE,
+    ),
 )
 _GENERIC_REQUEST_PREFIXES = (
     "can you",
@@ -246,6 +270,16 @@ def process_task_actions_for_round(
                 continue
 
             try:
+                next_round_due: Optional[int] = None
+                next_round_budget: Optional[int] = None
+                if round_index is not None:
+                    next_round_due = round_index + 1
+                    if total_rounds is not None:
+                        next_round_due = min(next_round_due, total_rounds)
+                    next_round_budget = max(next_round_due - round_index, 0)
+                elif total_rounds is not None:
+                    next_round_due = total_rounds
+
                 task = lifecycle.offer_task(
                     title=title,
                     description=task_request_text,
@@ -255,12 +289,8 @@ def process_task_actions_for_round(
                     origin_metadata=origin_metadata,
                     mention_context=mention_context,
                     created_round=round_index,
-                    due_round=total_rounds,
-                    round_budget=(
-                        max(total_rounds - round_index, 0)
-                        if round_index is not None and total_rounds is not None
-                        else None
-                    ),
+                    due_round=next_round_due,
+                    round_budget=next_round_budget,
                     deliverable_type=task_request_metadata["deliverable_type"],
                     acceptance_criteria=task_request_metadata["acceptance_criteria"],
                     suggested_tools=task_request_metadata["suggested_tools"],
@@ -306,6 +336,16 @@ def process_task_actions_for_round(
                 if actor_name not in {task.assigned_by, task.assigned_to}:
                     continue
 
+                if actor_name == task.assigned_to:
+                    task = _progress_task_from_public_update(
+                        lifecycle=lifecycle,
+                        task=task,
+                        actor_name=actor_name,
+                        public_text=public_text,
+                        round_index=round_index,
+                        issue_key=issue_key,
+                    )
+
                 store.transition_task(
                     issue_key,
                     actor=actor_name,
@@ -316,6 +356,28 @@ def process_task_actions_for_round(
                     round_index=round_index,
                 )
                 linked_task_refs.add(issue_key)
+
+        if public_text and not linked_task_refs:
+            implied_task = _infer_single_active_task_for_actor(
+                store=store,
+                actor_name=actor_name,
+                current_round=round_index,
+                total_rounds=total_rounds,
+            )
+            if implied_task is not None:
+                updated = _progress_task_from_public_update(
+                    lifecycle=lifecycle,
+                    task=implied_task,
+                    actor_name=actor_name,
+                    public_text=public_text,
+                    round_index=round_index,
+                    issue_key=implied_task.issue_key,
+                    chat_refs=[chat_context] if chat_context else None,
+                    allow_progress_note=True,
+                    inferred_source="single_active_task_update",
+                )
+                if updated is not None:
+                    linked_task_refs.add(updated.issue_key)
 
     return round_offer_pairs
 
@@ -454,6 +516,11 @@ def _looks_like_delegation(
     matches: list[re.Match[str]],
 ) -> bool:
     local_after = _extract_local_after_window(text, match, matches)
+    if any(
+        pattern.search(local_after)
+        for pattern in _NON_DELEGATION_STATUS_AFTER_MENTION_PATTERNS
+    ):
+        return False
     if any(pattern.search(local_after) for pattern in _REQUEST_AFTER_MENTION_PATTERNS):
         return True
 
@@ -621,3 +688,100 @@ def _queue_non_executable_offer_notification(
 
 def _normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _progress_task_from_public_update(
+    *,
+    lifecycle: TaskLifecycleService,
+    task: Any,
+    actor_name: str,
+    public_text: str,
+    round_index: Optional[int],
+    issue_key: str,
+    chat_refs: Optional[list[dict[str, Any]]] = None,
+    allow_progress_note: bool = False,
+    inferred_source: str = "public_issue_key_update",
+) -> Any:
+    """Infer lifecycle progress from assignee public updates that cite a task."""
+    try:
+        if task.status == "offered":
+            task = lifecycle.accept_task(
+                issue_key,
+                actor=actor_name,
+                reason="Implicit acceptance inferred from public task update.",
+                round_index=round_index,
+                event_details={"source": inferred_source, "inferred": True},
+                chat_refs=chat_refs,
+            )
+
+        if task.status == "open":
+            task = lifecycle.start_task(
+                issue_key,
+                actor=actor_name,
+                reason="Implicit start inferred from public task update.",
+                round_index=round_index,
+                event_details={"source": inferred_source, "inferred": True},
+                chat_refs=chat_refs,
+            )
+
+        if task.status == "in_progress" and _looks_like_completion_update(public_text):
+            task = lifecycle.complete_task(
+                issue_key,
+                actor=actor_name,
+                output=public_text,
+                round_index=round_index,
+                event_details={"source": inferred_source, "inferred": True},
+                chat_refs=chat_refs,
+            )
+        elif allow_progress_note and task.status in {"open", "in_progress"}:
+            task = lifecycle.update_task_status(
+                issue_key,
+                actor=actor_name,
+                status=task.status,
+                reason=public_text,
+                round_index=round_index,
+                event_details={"source": inferred_source, "inferred": True},
+                chat_refs=chat_refs,
+            )
+    except TaskLifecycleError as exc:
+        logger.debug(
+            "Public task update could not infer lifecycle transition (task=%s, actor=%s): %s",
+            issue_key,
+            actor_name,
+            exc,
+        )
+
+    refreshed = lifecycle.get_task(issue_key)
+    return refreshed or task
+
+
+def _infer_single_active_task_for_actor(
+    *,
+    store: Any,
+    actor_name: str,
+    current_round: Optional[int],
+    total_rounds: Optional[int],
+) -> Any | None:
+    candidate_tasks = [
+        task
+        for task in store.list_tasks(assigned_to=actor_name)
+        if task_requires_agent_response(
+            task,
+            current_round=current_round,
+            total_rounds=total_rounds,
+        )
+    ]
+    if len(candidate_tasks) != 1:
+        return None
+    return candidate_tasks[0]
+
+
+def _looks_like_completion_update(text: str) -> bool:
+    normalized = _normalize_space(text)
+    if not normalized:
+        return False
+    if _NEGATED_COMPLETION_PATTERN.search(normalized):
+        return False
+    if _PARTIAL_COMPLETION_PATTERN.search(normalized):
+        return False
+    return any(pattern.search(normalized) for pattern in _COMPLETION_CUE_PATTERNS)

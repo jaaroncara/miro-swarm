@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 TASK_ACTION_GRAMMAR = """\
 Prefer MCP task tools when they are available: `offer_task`, `accept_task`, `decline_task`, `get_task`, `list_my_tasks`, `start_task`, `update_task_status`, `block_task`, `complete_task`, and `save_task_artifact`.
+Before you call `offer_task`, publish one visible public delegation sentence that explicitly tags the assignee with `@Assignee` and states the concrete deliverable request.
+When you call `offer_task`, copy that exact public delegation sentence into `mention_text` so task context and public chat remain aligned.
 Only offer executable work that can be completed inside the simulation with the available MCP tools and current context. Prefer briefs, summaries, analyses, comparisons, memos, recommendations, evidence packs, and report sections over meeting coordination.
 Do not create meeting-only tasks such as "set up a meeting" or "schedule a sync" unless you rewrite them into a concrete deliverable request first.
 If the deliverable is better represented as a file, such as a markdown brief, memo, CSV, JSON, code/config file, or PDF, use `save_task_artifact` first and then `complete_task` with a short summary.
@@ -66,6 +68,8 @@ Only include a task_action tag when you genuinely intend to create or update a t
 
 TASK_MCP_PREFERRED_GUIDANCE = """\
 Use MCP task tools for coordination whenever the runtime exposes them. Treat XML `<task_action>` blocks as a fallback path only, not the default workflow.
+Before calling `offer_task`, publish one public delegation sentence that tags the recipient with `@Assignee` and clearly states the concrete deliverable request.
+Then call `offer_task` and set `mention_text` to that exact public sentence so the task offer and visible chat request match verbatim.
 Offer concrete deliverables that can be executed in-simulation. If a request is really a meeting or conversation, rewrite it into a brief, summary, memo, analysis, or recommendation deliverable before you offer it as a task.
 If your deliverable would naturally live in a file, such as a markdown brief, memo, notes file, CSV, JSON payload, code/config snippet, or PDF, call `save_task_artifact` before `complete_task`. Use a descriptive filename, the matching media type, and then complete the task with a short summary that references the saved file.
 After you accept, decline, start, update, block, or complete a task, leave a visible public update in the simulation chat so other agents can follow the work.
@@ -240,6 +244,16 @@ def apply_task_action(
     normalized_published_text = (published_text or "").strip() or None
     chat_refs = [chat_context] if chat_context else None
 
+    next_round_due: Optional[int] = None
+    next_round_budget: Optional[int] = None
+    if round_index is not None:
+        next_round_due = round_index + 1
+        if total_rounds is not None:
+            next_round_due = min(next_round_due, total_rounds)
+        next_round_budget = max(next_round_due - round_index, 0)
+    elif total_rounds is not None:
+        next_round_due = total_rounds
+
     try:
         log_task_pipeline_metric(
             "compat_path_used",
@@ -268,12 +282,8 @@ def apply_task_action(
                 origin="xml_compat",
                 origin_metadata={"source": "legacy_xml", "action_type": "create"},
                 created_round=round_index,
-                due_round=total_rounds,
-                round_budget=(
-                    max(total_rounds - round_index, 0)
-                    if round_index is not None and total_rounds is not None
-                    else None
-                ),
+                due_round=next_round_due,
+                round_budget=next_round_budget,
                 deliverable_type=parsed.deliverable_type,
                 acceptance_criteria=parsed.acceptance_criteria,
                 tool_plan=parsed.tool_plan,
