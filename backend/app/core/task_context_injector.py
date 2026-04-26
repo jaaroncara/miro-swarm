@@ -112,9 +112,9 @@ def build_task_context_message(
             "  2. Uses MCP task tools for all task lifecycle updates in this run.",
             "  3. Keeps the work executable inside the simulation. If a request is really a meeting or conversation, decline it or rewrite it into a concrete deliverable.",
             "  4. If the deliverable is file-like, such as a markdown brief, memo, CSV, JSON, code/config, or PDF, save it with `save_task_artifact` first using a clear filename and media type.",
-            "  5. After you accept, decline, update, block, or complete a task, leave a visible public update in the simulation chat so other agents can follow the work.",
+            "  5. Leave visible public updates for high-signal lifecycle events only: accepted, blocked, and completed. Keep each update concise and avoid repetitive progress pings.",
             "  6. When you publish a final report or deliverable, store that same content in the task completion output, or summarize the saved artifact when you complete the task.",
-            "Do NOT post about any other topic until you have responded to every task listed here.",
+            "Before posting unrelated topics, ensure each task listed here has received the required response this round.",
             "",
         ]
     )

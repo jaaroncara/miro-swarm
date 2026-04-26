@@ -76,6 +76,34 @@ _GENERIC_REQUEST_PREFIXES = (
     "please",
     "need you to",
 )
+_MEETING_ONLY_CUE_PATTERNS = (
+    re.compile(
+        r"\b(?:set\s+up|schedule|book|arrange)\s+(?:a\s+)?(?:meeting|sync|call|huddle|discussion)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:let'?s|lets)\s+(?:sync|align|chat|talk|connect)\b", re.IGNORECASE
+    ),
+    re.compile(r"\b(?:quick\s+)?(?:sync|call|huddle)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:touch\s+base|take\s+this\s+offline|discuss\s+live|hop\s+on\s+(?:a\s+)?call)\b",
+        re.IGNORECASE,
+    ),
+)
+_DELIVERABLE_CUE_PATTERNS = (
+    re.compile(
+        r"\b(?:brief|report|memo|analysis|summary|recommendation|plan|draft|artifact|deliverable)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:slides?|deck|spreadsheet|table|csv|json|doc|document|write\s+up|write-up)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:compare|evaluate|review|investigate|compile|prepare|publish|share\s+(?:a|the))\b",
+        re.IGNORECASE,
+    ),
+)
 
 
 def collect_structured_offer_pairs(
@@ -245,6 +273,25 @@ def process_task_actions_for_round(
 
             try:
                 title = _build_mention_offer_title(actor_name, task_request_text)
+                if _looks_like_meeting_only_request(task_request_text):
+                    _queue_non_executable_offer_notification(
+                        store=store,
+                        recipient_name=recipient_name,
+                        actor_name=actor_name,
+                        public_text=task_request_text,
+                        mention_context=mention_context,
+                        round_index=round_index,
+                    )
+                    log_task_pipeline_metric(
+                        "non_executable_offer_detected",
+                        simulation_id=simulation_id,
+                        actor=actor_name,
+                        recipient=recipient_name,
+                        platform=normalized_platform,
+                        reason="meeting_only_request_requires_deliverable_rewrite",
+                        snippet=mention_context.get("snippet"),
+                    )
+                    continue
                 task_request_metadata = prepare_task_request_metadata(
                     title=title,
                     description=task_request_text,
@@ -688,6 +735,23 @@ def _queue_non_executable_offer_notification(
 
 def _normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _looks_like_meeting_only_request(text: str) -> bool:
+    normalized = _normalize_space(text)
+    if not normalized:
+        return False
+
+    has_meeting_cue = any(
+        pattern.search(normalized) for pattern in _MEETING_ONLY_CUE_PATTERNS
+    )
+    if not has_meeting_cue:
+        return False
+
+    has_deliverable_cue = any(
+        pattern.search(normalized) for pattern in _DELIVERABLE_CUE_PATTERNS
+    )
+    return not has_deliverable_cue
 
 
 def _progress_task_from_public_update(

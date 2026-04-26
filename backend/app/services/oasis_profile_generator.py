@@ -711,6 +711,7 @@ class OasisProfileGenerator:
             "You are an expert in generating business and corporate employee profiles. "
             "Generate detailed, realistic personas for organizational decision-making simulations that reconstruct corporate environments (like Slack or internal forums). "
             "Every persona must be driven by 1-2 specific quarterly OKRs (Objectives and Key Results), have a defined risk tolerance, and specific organizational friction points. "
+            "Prefer async-first written collaboration norms and concrete deliverable ownership over meeting rituals or generic alignment language. "
             "Each persona should portray someone who naturally reaches for available tools (database queries, web searches, data lookups) to ground their statements in concrete evidence rather than relying solely on opinion. "
             "You must return valid JSON format, and all string values must not contain unescaped newline characters. Use English."
         )
@@ -746,12 +747,12 @@ Context Information:
 
 Please generate JSON containing the following fields:
 
-1. bio: Professional bio, 200 words
-2. persona: Detailed corporate persona description (2000 words of plain text), must include:
+1. bio: Professional bio, 70-110 words
+2. persona: Detailed corporate persona description (350-500 words of plain text), must include:
    - Basic information (age, job title, department, seniority level, location)
    - Professional background (career history, connections to company events, cross-functional relationships)
    - Personality traits (MBTI type, core personality, emotional expression style in workplace)
-   - Communication behavior (Slack/Email messaging frequency, collaboration style, corporate language characteristics)
+    - Communication behavior (async thread habits, decision clarity, escalation style, corporate language characteristics)
    - Strategic OKRs & Business Stances (Assign 1-2 specific quarterly Objectives and Key Results. Describe their attitudes toward strategic company topics, changes, and their specific risk tolerance)
    - Organizational Friction Points (Who do they naturally clash with or what processes block them? Identify sources of friction)
    - Unique characteristics (workplace catchphrases, operational habits)
@@ -767,6 +768,7 @@ Please generate JSON containing the following fields:
 Important:
 - All field values must be strings or numbers, do not use newline characters
 - persona must be a coherent text description
+- Avoid generic meeting-heavy phrasing such as "schedule a sync", "let's align", or "circle back" unless tied to explicit blockers
 - Use English (gender field must use English male/female)
 - Content must be consistent with the entity information
 - age must be a valid integer, gender must be "male" or "female"
@@ -802,11 +804,11 @@ Context Information:
 
 Please generate JSON containing the following fields:
 
-1. bio: Official department/team bio, 200 words, professional and appropriate
-2. persona: Detailed department profile description (2000 words of plain text), must include:
+1. bio: Official department/team bio, 70-110 words, professional and appropriate
+2. persona: Detailed department profile description (350-500 words of plain text), must include:
    - Organization basic information (official name, organizational nature, core business functions within the company)
    - Team positioning (team type, key stakeholders, core OKRs/KPIs)
-   - Communication style (corporate language characteristics, common business expressions, meeting styles)
+    - Communication style (corporate language characteristics, async update style, decision ownership)
    - Content publishing characteristics (types of updates shared, announcements, active times)
    - Stances and attitudes (official department positions on core business topics, approach to handling cross-functional alignment)
    - Special notes (represented team culture, operational processes)
@@ -822,6 +824,7 @@ Please generate JSON containing the following fields:
 Important:
 - All field values must be strings or numbers, null values are not allowed
 - persona must be a coherent text description, do not use newline characters
+- Avoid generic meeting-heavy phrasing such as "schedule a sync", "let's align", or "circle back" unless tied to explicit blockers
 - Use English (gender field must use English "other")
 - age must be the integer 30, gender must be the string "other"
 - Team communication must match its business function and positioning"""
