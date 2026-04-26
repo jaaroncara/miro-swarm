@@ -188,29 +188,13 @@
                     </span>
                   </div>
 
-                  <div v-if="getTaskEventSummary(action)" class="task-event-summary">
-                    {{ getTaskEventSummary(action) }}
-                  </div>
-
-                  <div v-if="getTaskMentionSnippet(action)" class="mention-context">
-                    <span class="mention-context-label">Mention context</span>
-                    <span class="mention-context-text" v-html="formatHighlightedMentions(getTaskMentionSnippet(action))"></span>
+                  <div class="task-status-line">
+                    {{ getTaskStatusUpdateText(action) }}
                   </div>
 
                   <div v-if="getTaskEventDetailChips(action).length" class="task-detail-chips">
                     <span v-for="detail in getTaskEventDetailChips(action)" :key="detail" class="task-detail-chip">
                       {{ detail }}
-                    </span>
-                  </div>
-
-                  <div v-if="action.artifact_summaries?.length" class="task-artifact-list">
-                    <span class="task-artifact-label">Artifacts</span>
-                    <span
-                      v-for="artifact in action.artifact_summaries"
-                      :key="artifact.artifact_id"
-                      class="task-artifact-chip"
-                    >
-                      {{ artifact.filename || artifact.kind || artifact.artifact_id }}
                     </span>
                   </div>
                 </template>
@@ -780,39 +764,47 @@ const hasMentionContext = (entry) => {
   return getEntryMentions(entry).length > 0
 }
 
-const getTaskEventSummary = (entry) => {
-  const details = entry?.details || {}
-  return (
-    details.summary ||
-    details.note ||
-    details.reason ||
-    details.blocked_reason ||
-    details.output ||
-    details.message ||
-    entry?.chat_refs?.[0]?.snippet ||
-    entry.task_title ||
-    ''
-  )
+const getTaskStatusUpdateText = (entry) => {
+  const actor = entry?.actor || entry?.assigned_to || 'Agent'
+  const issueKey = entry?.issue_key || 'task'
+
+  const labels = {
+    offered: `${actor} offered ${issueKey}.`,
+    accepted: `${actor} accepted ${issueKey}.`,
+    declined: `${actor} declined ${issueKey}.`,
+    started: `${actor} started ${issueKey}.`,
+    blocked: `${actor} marked ${issueKey} as blocked.`,
+    completed: `${actor} completed ${issueKey}.`,
+    expired: `${issueKey} expired.`,
+    progress_updated: `${actor} posted a progress update for ${issueKey}.`,
+    status_updated: `${actor} updated the status for ${issueKey}.`,
+    public_update: `${actor} posted a task-linked chat update for ${issueKey}.`,
+    artifact_saved: `${actor} added an artifact to ${issueKey}.`,
+    artifact_added: `${actor} added an artifact to ${issueKey}.`,
+    artifact_removed: `${actor} removed an artifact from ${issueKey}.`,
+    updated: `${actor} updated ${issueKey}.`
+  }
+
+  return labels[entry?.event_type] || `${actor} updated ${issueKey}.`
 }
 
 const getTaskEventDetailChips = (entry) => {
   const details = entry?.details || {}
   const chips = []
 
-  if (details.deadline_at) {
-    chips.push(`Deadline ${formatActionTime(details.deadline_at)}`)
-  }
+  const artifactCount = details.artifact_count ?? entry?.artifact_summaries?.length
+
   if (details.due_round != null) {
     chips.push(`Due R${details.due_round}`)
   }
   if (details.round_budget != null) {
-    chips.push(`${details.round_budget} round budget`)
+    chips.push(`${details.round_budget}r budget`)
   }
-  if (details.artifact_count != null) {
-    chips.push(`${details.artifact_count} artifacts`)
+  if (artifactCount != null) {
+    chips.push(`${artifactCount} artifacts`)
   }
-  if (details.reason && details.reason !== getTaskEventSummary(entry)) {
-    chips.push(details.reason)
+  if (entry?.round_num != null) {
+    chips.push(`R${entry.round_num}`)
   }
 
   return chips
@@ -1076,6 +1068,11 @@ onUnmounted(() => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+.task-status-line {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 .stat-value {
