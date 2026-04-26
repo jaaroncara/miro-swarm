@@ -115,7 +115,7 @@ async def offer_task(
     round_budget: int | None = None,
     deadline_at: str = "",
 ) -> str:
-    """Offer a new task to a colleague so they can accept or decline it."""
+    """Create a new task assignment for a colleague."""
     try:
         task = _get_lifecycle(simulation_id).offer_task(
             title=title,
@@ -132,7 +132,12 @@ async def offer_task(
             origin="mcp_offer",
             origin_metadata={"source": "mcp", "tool": "offer_task"},
         )
-        return f"Task offered: {_format_task_summary(task)}"
+        lifecycle_prefix = "Task assigned"
+        if task.status == "offered":
+            lifecycle_prefix = "Task offered"
+        elif task.status == "open":
+            lifecycle_prefix = "Task assigned and auto-accepted"
+        return f"{lifecycle_prefix}: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
         return _build_task_tool_error(
             "offer_task",

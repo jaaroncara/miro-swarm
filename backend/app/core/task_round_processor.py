@@ -25,23 +25,6 @@ _GENERIC_MENTION_TOKENS = {"all", "everyone", "everybody", "team"}
 _MENTION_TOKEN_RE = re.compile(r"(?<!\w)@(?P<handle>[A-Za-z0-9_][A-Za-z0-9_.-]{0,63})")
 _MENTION_REFERENCE_RE = re.compile(r"@[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}")
 _ISSUE_KEY_REFERENCE_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,9}-[1-9]\d*\b")
-_COMPLETION_CUE_PATTERNS = (
-    re.compile(
-        r"\b(?:done|completed|finished|delivered|finalized|finalised)\b", re.IGNORECASE
-    ),
-    re.compile(r"\b(?:shared|published|posted|uploaded|attached)\b", re.IGNORECASE),
-    re.compile(
-        r"\bfinal\s+(?:brief|report|summary|deliverable|version|draft)\b", re.IGNORECASE
-    ),
-)
-_NEGATED_COMPLETION_PATTERN = re.compile(
-    r"\b(?:not|isn't|isnt|wasn't|wasnt|haven't|havent|hasn't|hasnt|didn't|didnt)\s+(?:done|complete|completed|finished|ready)\b",
-    re.IGNORECASE,
-)
-_PARTIAL_COMPLETION_PATTERN = re.compile(
-    r"\b(?:halfway|partly|partially|almost|nearly)\s+(?:done|complete|completed|finished|ready)\b",
-    re.IGNORECASE,
-)
 _REQUEST_ANYWHERE_PATTERNS = (
     re.compile(r"\b(?:can|could|would|will)\s+you\b", re.IGNORECASE),
     re.compile(r"\bplease\b", re.IGNORECASE),
@@ -116,8 +99,6 @@ def collect_structured_offer_pairs(
         if task.task_id in existing_task_ids:
             continue
         if task.origin == "mention_compat":
-            continue
-        if task.status != "offered":
             continue
         if task.assigned_by and task.assigned_to:
             pairs.add((task.assigned_by, task.assigned_to))
@@ -420,7 +401,6 @@ def process_task_actions_for_round(
                     round_index=round_index,
                     issue_key=implied_task.issue_key,
                     chat_refs=[chat_context] if chat_context else None,
-                    allow_progress_note=True,
                     inferred_source="single_active_task_update",
                 )
                 if updated is not None:
@@ -763,7 +743,6 @@ def _progress_task_from_public_update(
     round_index: Optional[int],
     issue_key: str,
     chat_refs: Optional[list[dict[str, Any]]] = None,
-    allow_progress_note: bool = False,
     inferred_source: str = "public_issue_key_update",
 ) -> Any:
     """Infer lifecycle progress from assignee public updates that cite a task."""
@@ -788,25 +767,8 @@ def _progress_task_from_public_update(
                 chat_refs=chat_refs,
             )
 
-        if task.status == "in_progress" and _looks_like_completion_update(public_text):
-            task = lifecycle.complete_task(
-                issue_key,
-                actor=actor_name,
-                output=public_text,
-                round_index=round_index,
-                event_details={"source": inferred_source, "inferred": True},
-                chat_refs=chat_refs,
-            )
-        elif allow_progress_note and task.status in {"open", "in_progress"}:
-            task = lifecycle.update_task_status(
-                issue_key,
-                actor=actor_name,
-                status=task.status,
-                reason=public_text,
-                round_index=round_index,
-                event_details={"source": inferred_source, "inferred": True},
-                chat_refs=chat_refs,
-            )
+        # Completion is never inferred from free-form text cues.
+        # A task reaches terminal state only through explicit lifecycle actions.
     except TaskLifecycleError as exc:
         logger.debug(
             "Public task update could not infer lifecycle transition (task=%s, actor=%s): %s",
@@ -838,14 +800,3 @@ def _infer_single_active_task_for_actor(
     if len(candidate_tasks) != 1:
         return None
     return candidate_tasks[0]
-
-
-def _looks_like_completion_update(text: str) -> bool:
-    normalized = _normalize_space(text)
-    if not normalized:
-        return False
-    if _NEGATED_COMPLETION_PATTERN.search(normalized):
-        return False
-    if _PARTIAL_COMPLETION_PATTERN.search(normalized):
-        return False
-    return any(pattern.search(normalized) for pattern in _COMPLETION_CUE_PATTERNS)

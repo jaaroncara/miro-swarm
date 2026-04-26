@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Optional
 
@@ -21,6 +22,8 @@ from .simulation_task_store import (
     get_simulation_task_store,
 )
 from .task_observability import log_task_pipeline_metric
+
+logger = logging.getLogger(__name__)
 
 
 class TaskLifecycleError(ValueError):
@@ -381,6 +384,25 @@ class TaskLifecycleService:
             tool_plan=tool_plan,
             chat_refs=chat_refs,
         )
+
+        if (
+            Config.task_auto_accept_offers()
+            and task.status == TASK_STATUS_OFFERED
+            and task.assigned_to
+            and task.assigned_to != task.assigned_by
+        ):
+            return self.accept_task(
+                task.issue_key,
+                actor=task.assigned_to,
+                reason=Config.task_auto_accept_note(),
+                round_index=task.created_round,
+                event_details={
+                    "auto_accepted": True,
+                    "policy": "task_auto_accept_offers",
+                    "source": origin,
+                },
+            )
+
         self._queue_offer_notification(task)
         return task
 
@@ -395,6 +417,8 @@ class TaskLifecycleService:
     ) -> SimulationTask:
         task = self._get_required_task(task_ref)
         self._assert_assignee(task, actor)
+        if task.status == TASK_STATUS_OPEN:
+            return task
         if task.status != TASK_STATUS_OFFERED:
             raise TaskLifecycleError(
                 f"Task {task.issue_key} is not awaiting acceptance."
@@ -888,6 +912,13 @@ class TaskLifecycleService:
             round_budget=round_budget,
         )
 
+        _, state_total_rounds = self._load_run_state_rounds()
+        self._validate_assignment_runway(
+            created_round=resolved_created_round,
+            due_round=resolved_due_round,
+            total_rounds=state_total_rounds,
+        )
+
         task = self.store.create_task(
             title=title.strip(),
             description=description.strip(),
@@ -928,6 +959,8 @@ class TaskLifecycleService:
         due_round: Optional[int],
         round_budget: Optional[int],
     ) -> tuple[Optional[int], Optional[int], Optional[int]]:
+        round_budget_supplied = round_budget not in (None, "")
+
         normalized_created_round = self._coerce_round_value(
             created_round,
             field_name="created_round",
@@ -1000,15 +1033,51 @@ class TaskLifecycleService:
             inferred_round_budget is not None
             and normalized_round_budget != inferred_round_budget
         ):
-            raise TaskLifecycleError(
-                "round_budget must match due_round - created_round when all three values are supplied."
-            )
+            if not round_budget_supplied:
+                normalized_round_budget = inferred_round_budget
+            else:
+                raise TaskLifecycleError(
+                    "round_budget must match due_round - created_round when all three values are supplied."
+                )
 
         return (
             normalized_created_round,
             normalized_due_round,
             normalized_round_budget,
         )
+
+    def _validate_assignment_runway(
+        self,
+        *,
+        created_round: Optional[int],
+        due_round: Optional[int],
+        total_rounds: Optional[int],
+    ) -> None:
+        if not Config.task_reject_late_assignments():
+            return
+        if created_round is None or total_rounds is None:
+            return
+
+        minimum_rounds = Config.task_min_completion_rounds()
+        remaining_including_current = (total_rounds - created_round) + 1
+        if remaining_including_current < minimum_rounds:
+            raise TaskLifecycleError(
+                "Task assignment rejected: insufficient remaining simulation rounds "
+                f"({remaining_including_current}) for minimum completion window "
+                f"({minimum_rounds})."
+            )
+
+        if due_round is None:
+            return
+
+        remaining_to_due_including_current = (due_round - created_round) + 1
+        if remaining_to_due_including_current < minimum_rounds:
+            logger.warning(
+                "Task %s due window (%s rounds) is below configured minimum (%s rounds).",
+                self.simulation_id,
+                remaining_to_due_including_current,
+                minimum_rounds,
+            )
 
     def _resolve_transition_round_index(
         self,

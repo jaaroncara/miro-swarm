@@ -131,6 +131,16 @@ class Config:
     TASK_ROUND_ENFORCEMENT_ACTION = _get_env_or_default(
         "TASK_ROUND_ENFORCEMENT_ACTION", "block"
     )
+    TASK_AUTO_ACCEPT_OFFERS = _get_bool_env("TASK_AUTO_ACCEPT_OFFERS", True)
+    TASK_AUTO_ACCEPT_NOTE = _get_env_or_default(
+        "TASK_AUTO_ACCEPT_NOTE",
+        "Auto-accepted on assignment so work can start immediately.",
+    )
+    TASK_MIN_COMPLETION_ROUNDS = int(os.environ.get("TASK_MIN_COMPLETION_ROUNDS", "2"))
+    TASK_REJECT_LATE_ASSIGNMENTS = _get_bool_env(
+        "TASK_REJECT_LATE_ASSIGNMENTS",
+        True,
+    )
 
     # OASIS platform available actions
     OASIS_TWITTER_ACTIONS = [
@@ -239,6 +249,35 @@ class Config:
         except (TypeError, ValueError):
             return 3
         return max(parsed, 1)
+
+    @classmethod
+    def task_auto_accept_offers(cls) -> bool:
+        return bool(getattr(cls, "TASK_AUTO_ACCEPT_OFFERS", True))
+
+    @classmethod
+    def task_auto_accept_note(cls) -> str:
+        raw_value = str(
+            getattr(
+                cls,
+                "TASK_AUTO_ACCEPT_NOTE",
+                "Auto-accepted on assignment so work can start immediately.",
+            )
+            or ""
+        ).strip()
+        return raw_value or "Auto-accepted on assignment so work can start immediately."
+
+    @classmethod
+    def task_min_completion_rounds(cls) -> int:
+        raw_value = getattr(cls, "TASK_MIN_COMPLETION_ROUNDS", 2)
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            return 2
+        return max(parsed, 1)
+
+    @classmethod
+    def task_reject_late_assignments(cls) -> bool:
+        return bool(getattr(cls, "TASK_REJECT_LATE_ASSIGNMENTS", True))
 
     @classmethod
     def validate(cls):

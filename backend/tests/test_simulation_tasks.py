@@ -96,6 +96,14 @@ def simulation_root(tmp_path: Path) -> Path:
     return base_dir
 
 
+@pytest.fixture(autouse=True)
+def task_lifecycle_default_test_flags(monkeypatch: pytest.MonkeyPatch):
+    # Preserve legacy expectations for broad test coverage unless overridden.
+    monkeypatch.setattr(Config, "TASK_AUTO_ACCEPT_OFFERS", False)
+    monkeypatch.setattr(Config, "TASK_REJECT_LATE_ASSIGNMENTS", False)
+    monkeypatch.setattr(Config, "TASK_MIN_COMPLETION_ROUNDS", 1)
+
+
 @pytest.fixture
 def task_api_client(simulation_root: Path, monkeypatch: pytest.MonkeyPatch):
     data_dir = simulation_root.parent / "json_graphs"
@@ -910,6 +918,66 @@ def test_phase_one_lifecycle_supports_accept_decline_and_expire(simulation_root:
         lifecycle.start_task(declined.issue_key, actor="Cara")
 
 
+def test_auto_accept_offers_on_assignment_when_enabled(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "TASK_AUTO_ACCEPT_OFFERS", True)
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.offer_task(
+        title="Auto-accept task",
+        description="Should auto-accept at creation.",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=3,
+    )
+
+    assert task.status == "open"
+    assert [event.event_type for event in task.events] == ["offered", "accepted"]
+    assert task.events[-1].details["note"] == Config.task_auto_accept_note()
+    assert task.events[-1].details.get("auto_accepted") is True
+
+
+def test_reject_late_assignments_when_completion_window_too_short(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from app.services.simulation_runner import SimulationRunner
+
+    monkeypatch.setattr(Config, "TASK_REJECT_LATE_ASSIGNMENTS", True)
+    monkeypatch.setattr(Config, "TASK_MIN_COMPLETION_ROUNDS", 2)
+    monkeypatch.setattr(SimulationRunner, "RUN_STATE_DIR", str(simulation_root))
+    SimulationRunner._run_states.pop("sim_test", None)
+
+    (simulation_root / "sim_test" / "run_state.json").write_text(
+        json.dumps(
+            {
+                "simulation_id": "sim_test",
+                "runner_status": "running",
+                "current_round": 10,
+                "total_rounds": 10,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    with pytest.raises(
+        TaskLifecycleError, match="insufficient remaining simulation rounds"
+    ):
+        lifecycle.offer_task(
+            title="Too-late assignment",
+            description="This should fail because there is no runway left.",
+            assigned_to="Bob",
+            actor="Alice",
+        )
+
+
 def test_phase_one_artifacts_are_staged_and_registered(simulation_root: Path):
     store = get_simulation_task_store("sim_test", base_dir=simulation_root)
     lifecycle = TaskLifecycleService("sim_test", store=store)
@@ -1587,7 +1655,7 @@ def test_phase_three_public_issue_key_updates_implicitly_progress_task_status(
     assert any(event.event_type == "started" for event in progressed.events)
 
 
-def test_phase_three_public_completion_cues_can_finish_task(
+def test_phase_three_public_completion_cues_do_not_finish_task(
     simulation_root: Path,
 ):
     store = get_simulation_task_store("sim_test", base_dir=simulation_root)
@@ -1622,12 +1690,10 @@ def test_phase_three_public_completion_cues_can_finish_task(
         structured_offer_pairs=set(),
     )
 
-    completed = store.get_task(task.issue_key)
-    assert completed is not None
-    assert completed.status == "done"
-    assert completed.output is not None
-    assert "completed and shared the final brief" in completed.output
-    assert any(event.event_type == "completed" for event in completed.events)
+    updated = store.get_task(task.issue_key)
+    assert updated is not None
+    assert updated.status == "in_progress"
+    assert not any(event.event_type == "completed" for event in updated.events)
 
 
 def test_phase_three_skips_mention_offer_when_structured_offer_exists_in_round(
@@ -2755,7 +2821,7 @@ def test_phase_three_single_active_task_public_update_infers_progress_without_is
     assert updated.chat_refs[-1].snippet.startswith("@Alice I am pulling")
 
 
-def test_phase_three_single_active_in_progress_task_adds_progress_note_without_issue_key(
+def test_phase_three_single_active_in_progress_task_does_not_emit_progress_note_without_issue_key(
     simulation_root: Path,
 ):
     store = get_simulation_task_store("sim_test", base_dir=simulation_root)
@@ -2797,8 +2863,7 @@ def test_phase_three_single_active_in_progress_task_adds_progress_note_without_i
     updated = store.get_task(task.issue_key)
     assert updated is not None
     assert updated.status == "in_progress"
-    assert updated.events[-1].event_type == "progress_updated"
-    assert updated.events[-1].details["note"].startswith("@Alice Draft is halfway done")
+    assert updated.events[-1].event_type == "started"
 
 
 def test_round_enforcement_idempotency_guard_skips_repeat_action_same_round(

@@ -172,6 +172,12 @@ MCP_SERVER_ARGS=-m,mcp_servers.combined
 # Optional tuning
 MCP_TOOL_CALL_TIMEOUT=30    # seconds per tool call (default: 30)
 MCP_MAX_TOOL_ROUNDS=3       # max tool-call rounds per LLM turn (default: 3)
+
+# Task lifecycle safety policy
+TASK_AUTO_ACCEPT_OFFERS=true
+TASK_AUTO_ACCEPT_NOTE=Auto-accepted on assignment so work can start immediately.
+TASK_MIN_COMPLETION_ROUNDS=2
+TASK_REJECT_LATE_ASSIGNMENTS=true
 ```
 
 ### Writing a custom MCP server

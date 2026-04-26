@@ -13,6 +13,7 @@ from typing import Any, List, Tuple
 logger = logging.getLogger(__name__)
 
 _BLOCKED_ESCALATION_THRESHOLD = 2
+_IN_PROGRESS_ESCALATION_THRESHOLD = 1
 
 
 def task_requires_agent_response(
@@ -22,8 +23,14 @@ def task_requires_agent_response(
     total_rounds: int | None = None,
 ) -> bool:
     """Return True when a task should force a directed response this round."""
-    if task.status in {"offered", "open", "in_progress"}:
+    if task.status in {"offered", "open"}:
         return True
+    if task.status == "in_progress":
+        return _should_escalate_in_progress_task(
+            task,
+            current_round=current_round,
+            total_rounds=total_rounds,
+        )
     if task.status != "blocked":
         return False
     return _should_escalate_blocked_task(
@@ -114,7 +121,7 @@ def build_task_context_message(
             "  4. If the deliverable is file-like, such as a markdown brief, memo, CSV, JSON, code/config, or PDF, save it with `save_task_artifact` first using a clear filename and media type.",
             "  5. Leave visible public updates for high-signal lifecycle events only: accepted, blocked, and completed. Keep each update concise and avoid repetitive progress pings.",
             "  6. When you publish a final report or deliverable, store that same content in the task completion output, or summarize the saved artifact when you complete the task.",
-            "Before posting unrelated topics, ensure each task listed here has received the required response this round.",
+            "Before posting unrelated topics, resolve the highest-priority pending item listed here first.",
             "",
         ]
     )
@@ -180,7 +187,7 @@ def build_task_context_message(
         elif task.status == "in_progress":
             lines.append(
                 f"  ACTION REQUIRED: Post an update to {assigner} on the progress of "
-                f"this task, or complete it if the work is done. Prefer MCP `update_task_status` for progress notes and `complete_task` when possible. If the deliverable is a file, save it with `save_task_artifact` first and then mention the saved filename in the completion summary."
+                f"this task only when there is a material milestone, blocker, or completion. Prefer MCP `complete_task` once the work is done. If the deliverable is a file, save it with `save_task_artifact` first and then mention the saved filename in the completion summary."
             )
         else:
             lines.append(
@@ -343,6 +350,40 @@ def _should_escalate_blocked_task(
         and global_future_rounds <= _BLOCKED_ESCALATION_THRESHOLD
     ):
         return True
+    return False
+
+
+def _should_escalate_in_progress_task(
+    task: Any,
+    *,
+    current_round: int | None,
+    total_rounds: int | None,
+) -> bool:
+    """Escalate active work only near the end of its delivery window.
+
+    In-progress tasks should not demand a forced response every round. We only
+    re-surface them when the due window or simulation horizon is nearly exhausted.
+    """
+    task_future_rounds = _task_future_rounds_remaining(
+        task,
+        current_round=current_round,
+    )
+    if (
+        task_future_rounds is not None
+        and task_future_rounds <= _IN_PROGRESS_ESCALATION_THRESHOLD
+    ):
+        return True
+
+    global_future_rounds = _future_rounds_remaining(
+        current_round=current_round,
+        total_rounds=total_rounds,
+    )
+    if (
+        global_future_rounds is not None
+        and global_future_rounds <= _IN_PROGRESS_ESCALATION_THRESHOLD
+    ):
+        return True
+
     return False
 
 
