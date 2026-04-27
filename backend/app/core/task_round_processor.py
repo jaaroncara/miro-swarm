@@ -22,6 +22,7 @@ from .task_lifecycle import (
 logger = logging.getLogger(__name__)
 
 _GENERIC_MENTION_TOKENS = {"all", "everyone", "everybody", "team"}
+_AMBIGUOUS_MENTION_ALIAS = "__ambiguous_mention_alias__"
 _MENTION_TOKEN_RE = re.compile(r"(?<!\w)@(?P<handle>[A-Za-z0-9_][A-Za-z0-9_.-]{0,63})")
 _MENTION_REFERENCE_RE = re.compile(r"@[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}")
 _ISSUE_KEY_REFERENCE_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,9}-[1-9]\d*\b")
@@ -207,15 +208,29 @@ def process_task_actions_for_round(
         if parsed is not None and parsed.action_type == "create":
             continue
 
+        delegation_targets, skipped_mentions = _extract_delegation_targets(
+            content,
+            actor_name=actor_name,
+            mention_aliases=mention_aliases,
+        )
+
+        if public_text:
+            for skipped in skipped_mentions:
+                log_task_pipeline_metric(
+                    "mention_offer_skipped",
+                    simulation_id=simulation_id,
+                    actor=actor_name,
+                    mention_token=skipped.get("mention_token"),
+                    reason=skipped.get("reason"),
+                    platform=normalized_platform,
+                    snippet=_build_snippet(public_text),
+                )
+
         for (
             mention_token,
             recipient_name,
             task_request_text,
-        ) in _extract_delegation_targets(
-            content,
-            actor_name=actor_name,
-            mention_aliases=mention_aliases,
-        ):
+        ) in delegation_targets:
             pair = (actor_name, recipient_name)
             if pair in round_offer_pairs:
                 continue
@@ -472,7 +487,12 @@ def _register_aliases(
         for alias in _derive_aliases(candidate):
             if alias in _GENERIC_MENTION_TOKENS:
                 continue
-            aliases.setdefault(alias, display_name)
+            existing = aliases.get(alias)
+            if existing is None:
+                aliases[alias] = display_name
+                continue
+            if existing != display_name:
+                aliases[alias] = _AMBIGUOUS_MENTION_ALIAS
 
 
 def _derive_aliases(candidate: str) -> set[str]:
@@ -484,6 +504,17 @@ def _derive_aliases(candidate: str) -> set[str]:
     aliases.add(normalized.replace(" ", ""))
     aliases.add(normalized.replace(" ", "_"))
     aliases.add(normalized.replace(" ", "-"))
+
+    # Add aliases for suffixed names such as finance_403 -> finance.
+    suffix_trimmed = re.sub(r"[_.\-]?\d{2,}$", "", normalized).strip(" ._-")
+    if suffix_trimmed and suffix_trimmed != normalized:
+        aliases.add(suffix_trimmed)
+        aliases.add(suffix_trimmed.replace(" ", ""))
+        aliases.add(suffix_trimmed.replace(" ", "_"))
+        aliases.add(suffix_trimmed.replace(" ", "-"))
+        head_token = re.split(r"[\s_.\-]+", suffix_trimmed)[0].strip(" ._-")
+        if head_token:
+            aliases.add(head_token)
 
     if normalized.startswith("user_"):
         aliases.add(normalized[5:])
@@ -507,34 +538,106 @@ def _extract_delegation_targets(
     *,
     actor_name: str,
     mention_aliases: dict[str, str],
-) -> list[tuple[str, str, str]]:
+) -> tuple[list[tuple[str, str, str]], list[dict[str, str]]]:
     public_text = _normalize_space(strip_task_action(content))
     if not public_text:
-        return []
+        return [], []
 
     matches = list(_MENTION_TOKEN_RE.finditer(public_text))
     if not matches:
-        return []
+        return [], []
 
     seen_recipients: set[str] = set()
     targets: list[tuple[str, str, str]] = []
+    skipped_mentions: list[dict[str, str]] = []
     for match in matches:
         mention_token = match.group("handle")
-        recipient_name = mention_aliases.get(_normalize_mention_token(mention_token))
-        if not recipient_name or recipient_name == actor_name:
+        normalized_mention = _normalize_mention_token(mention_token)
+        recipient_name = mention_aliases.get(normalized_mention)
+
+        if recipient_name == _AMBIGUOUS_MENTION_ALIAS:
+            skipped_mentions.append(
+                {
+                    "mention_token": mention_token,
+                    "reason": "ambiguous_alias",
+                }
+            )
             continue
+
+        if not recipient_name:
+            skipped_mentions.append(
+                {
+                    "mention_token": mention_token,
+                    "reason": "unresolved_alias",
+                }
+            )
+            continue
+
+        if _is_self_reference(actor_name, recipient_name, mention_token):
+            skipped_mentions.append(
+                {
+                    "mention_token": mention_token,
+                    "reason": "self_mention",
+                }
+            )
+            continue
+
         if recipient_name in seen_recipients:
             continue
+
         if not _looks_like_delegation(public_text, match, matches):
+            skipped_mentions.append(
+                {
+                    "mention_token": mention_token,
+                    "reason": "not_delegation_pattern",
+                }
+            )
             continue
+
         task_request_text = _derive_mention_task_request(public_text, match, matches)
         if not task_request_text:
+            skipped_mentions.append(
+                {
+                    "mention_token": mention_token,
+                    "reason": "empty_task_request",
+                }
+            )
             continue
 
         targets.append((mention_token, recipient_name, task_request_text))
         seen_recipients.add(recipient_name)
 
-    return targets
+    return targets, skipped_mentions
+
+
+def _is_self_reference(
+    actor_name: str, recipient_name: str, mention_token: str
+) -> bool:
+    actor_candidates = _identity_candidates(actor_name)
+    recipient_candidates = _identity_candidates(recipient_name)
+    token_candidates = _identity_candidates(mention_token)
+    return bool(actor_candidates & (recipient_candidates | token_candidates))
+
+
+def _identity_candidates(value: str) -> set[str]:
+    normalized = _normalize_mention_token(value)
+    if not normalized:
+        return set()
+
+    candidates = {normalized}
+    suffix_trimmed = re.sub(r"[_.\-]?\d{2,}$", "", normalized).strip(" ._-")
+    if suffix_trimmed:
+        candidates.add(suffix_trimmed)
+
+    collapsed = suffix_trimmed.replace("_", " ").replace("-", " ").replace(".", " ")
+    collapsed = _normalize_space(collapsed)
+    if collapsed:
+        candidates.add(collapsed.replace(" ", ""))
+        first_token = collapsed.split(" ")[0]
+        if first_token:
+            candidates.add(first_token)
+
+    return {candidate for candidate in candidates if candidate}
 
 
 def _looks_like_delegation(

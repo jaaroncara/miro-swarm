@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import json
 import logging
+import sqlite3
 import sys
 import asyncio
 from pathlib import Path
@@ -40,6 +41,7 @@ from app.core.task_lifecycle import (
 from app.core.task_round_processor import (
     collect_structured_offer_pairs,
     expire_unfinished_tasks,
+    load_mention_aliases,
     process_task_actions_for_round,
 )
 from app.resources.reports.report_store import ReportStore
@@ -1569,6 +1571,102 @@ def test_phase_three_meeting_like_mentions_queue_rewrite_notification(
     assert len(notifications) == 1
     assert notifications[0].category == "task_rewrite_needed"
     assert "rewriting it into a concrete brief" in notifications[0].message
+
+
+def test_phase_three_load_mention_aliases_maps_suffix_handles(simulation_root: Path):
+    db_path = simulation_root / "sim_test" / "twitter_simulation.db"
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE user (agent_id INTEGER, name TEXT, user_name TEXT)")
+    cursor.execute(
+        "INSERT INTO user (agent_id, name, user_name) VALUES (?, ?, ?)",
+        (3, "finance_403", None),
+    )
+    conn.commit()
+    conn.close()
+
+    aliases = load_mention_aliases(str(db_path), {3: "finance_403"})
+
+    assert aliases["finance_403"] == "finance_403"
+    assert aliases["finance"] == "finance_403"
+
+
+def test_phase_three_skips_self_mentions_when_role_alias_matches_actor(
+    simulation_root: Path,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+
+    process_task_actions_for_round(
+        actual_actions=[
+            {
+                "trace_rowid": 31,
+                "agent_id": 3,
+                "agent_name": "finance_403",
+                "action_type": "CREATE_POST",
+                "action_args": {
+                    "content": "@Finance can you prepare an updated budget memo?",
+                    "post_id": 19,
+                },
+            }
+        ],
+        simulation_id="sim_test",
+        store=store,
+        platform="twitter",
+        round_index=4,
+        mention_aliases={"finance": "finance_403"},
+        structured_offer_pairs=set(),
+    )
+
+    assert store.list_tasks() == []
+
+
+def test_phase_three_skips_ambiguous_role_mentions(simulation_root: Path):
+    db_path = simulation_root / "sim_test" / "twitter_simulation.db"
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE user (agent_id INTEGER, name TEXT, user_name TEXT)")
+    cursor.executemany(
+        "INSERT INTO user (agent_id, name, user_name) VALUES (?, ?, ?)",
+        [
+            (3, "finance_403", None),
+            (9, "finance_927", None),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    mention_aliases = load_mention_aliases(
+        str(db_path),
+        {
+            3: "finance_403",
+            9: "finance_927",
+            1: "Alice",
+        },
+    )
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    process_task_actions_for_round(
+        actual_actions=[
+            {
+                "trace_rowid": 41,
+                "agent_id": 1,
+                "agent_name": "Alice",
+                "action_type": "CREATE_POST",
+                "action_args": {
+                    "content": "@Finance can you prepare the budget comparison brief?",
+                    "post_id": 27,
+                },
+            }
+        ],
+        simulation_id="sim_test",
+        store=store,
+        platform="twitter",
+        round_index=5,
+        mention_aliases=mention_aliases,
+        structured_offer_pairs=set(),
+    )
+
+    assert store.list_tasks() == []
 
 
 def test_phase_three_public_issue_key_updates_are_linked_to_tasks(
