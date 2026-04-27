@@ -10,10 +10,11 @@ from __future__ import annotations
 import logging
 from typing import Any, List, Tuple
 
+from ..config import Config
+
 logger = logging.getLogger(__name__)
 
 _BLOCKED_ESCALATION_THRESHOLD = 2
-_IN_PROGRESS_ESCALATION_THRESHOLD = 1
 
 
 def task_requires_agent_response(
@@ -69,7 +70,15 @@ def build_task_context_message(
     """
     offered_tasks = store.list_tasks(assigned_to=agent_name, status="offered")
     open_tasks = store.list_tasks(assigned_to=agent_name, status="open")
-    in_progress_tasks = store.list_tasks(assigned_to=agent_name, status="in_progress")
+    in_progress_tasks = [
+        task
+        for task in store.list_tasks(assigned_to=agent_name, status="in_progress")
+        if task_requires_agent_response(
+            task,
+            current_round=current_round,
+            total_rounds=total_rounds,
+        )
+    ]
     blocked_tasks = [
         task
         for task in store.list_tasks(assigned_to=agent_name, status="blocked")
@@ -368,20 +377,15 @@ def _should_escalate_in_progress_task(
         task,
         current_round=current_round,
     )
-    if (
-        task_future_rounds is not None
-        and task_future_rounds <= _IN_PROGRESS_ESCALATION_THRESHOLD
-    ):
+    threshold = Config.task_in_progress_escalation_threshold()
+    if task_future_rounds is not None and task_future_rounds <= threshold:
         return True
 
     global_future_rounds = _future_rounds_remaining(
         current_round=current_round,
         total_rounds=total_rounds,
     )
-    if (
-        global_future_rounds is not None
-        and global_future_rounds <= _IN_PROGRESS_ESCALATION_THRESHOLD
-    ):
+    if global_future_rounds is not None and global_future_rounds <= threshold:
         return True
 
     return False

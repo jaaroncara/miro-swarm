@@ -423,6 +423,15 @@ class TaskLifecycleService:
         if due_round is not None or round_budget is not None:
             return due_round, round_budget
 
+        if not Config.task_default_due_next_round():
+            log_task_pipeline_metric(
+                "offer_due_default_applied",
+                simulation_id=self.simulation_id,
+                policy="legacy_round_budget",
+                created_round=created_round,
+            )
+            return due_round, round_budget
+
         current_round, total_rounds = self._load_run_state_rounds()
         base_round = created_round if created_round is not None else current_round
         if base_round is None:
@@ -433,6 +442,14 @@ class TaskLifecycleService:
             next_due_round = min(next_due_round, total_rounds)
 
         derived_round_budget = max(next_due_round - base_round, 0)
+        log_task_pipeline_metric(
+            "offer_due_default_applied",
+            simulation_id=self.simulation_id,
+            policy="next_actionable_round",
+            created_round=base_round,
+            due_round=next_due_round,
+            round_budget=derived_round_budget,
+        )
         return next_due_round, derived_round_budget
 
     def accept_task(

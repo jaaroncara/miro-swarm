@@ -104,6 +104,8 @@ def task_lifecycle_default_test_flags(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(Config, "TASK_AUTO_ACCEPT_OFFERS", False)
     monkeypatch.setattr(Config, "TASK_REJECT_LATE_ASSIGNMENTS", False)
     monkeypatch.setattr(Config, "TASK_MIN_COMPLETION_ROUNDS", 1)
+    monkeypatch.setattr(Config, "TASK_DEFAULT_DUE_NEXT_ROUND", True)
+    monkeypatch.setattr(Config, "TASK_IN_PROGRESS_ESCALATION_THRESHOLD", 2)
 
 
 @pytest.fixture
@@ -584,6 +586,42 @@ def test_task_server_mcp_offer_defaults_due_round_to_next_round(
     task_detail = json.loads(task_detail_raw)
     assert task_detail["due_round"] == 5
     assert task_detail["round_budget"] == 1
+
+
+def test_task_server_offer_can_disable_due_round_default(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "OASIS_SIMULATION_DATA_DIR", str(simulation_root))
+    monkeypatch.setattr(Config, "TASK_DEFAULT_DUE_NEXT_ROUND", False)
+    monkeypatch.setattr(
+        TaskLifecycleService,
+        "_load_run_state_rounds",
+        lambda self: (4, 9),
+    )
+
+    offer_message = asyncio.run(
+        task_server.offer_task(
+            simulation_id="sim_test",
+            title="Prepare KPI delta memo",
+            description="Summarize week-over-week KPI movement.",
+            assigned_to="Bob",
+            actor="Alice",
+        )
+    )
+
+    assert "Task offered:" in offer_message
+
+    task_detail_raw = asyncio.run(
+        task_server.get_task(
+            simulation_id="sim_test",
+            issue_key="TEST-1",
+            actor="Bob",
+        )
+    )
+    task_detail = json.loads(task_detail_raw)
+    assert task_detail["due_round"] == 7
+    assert task_detail["round_budget"] == Config.task_default_round_budget()
 
 
 def test_task_server_lifecycle_tools_attach_public_update_details(
@@ -1480,6 +1518,52 @@ def test_phase_four_task_context_includes_clock_and_blocked_escalation(
     assert "Due round     : 6" in context_message
     assert "before the run ends" in context_message
     assert "A plain reply is enough here" in context_message
+
+
+def test_in_progress_task_escalation_threshold_is_configurable(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.create_task(
+        title="Draft launch appendix",
+        description="Complete the appendix before the final synthesis.",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=1,
+        due_round=6,
+        round_budget=5,
+    )
+    lifecycle.start_task(
+        task.issue_key,
+        actor="Bob",
+        reason="Started drafting the appendix",
+        round_index=2,
+    )
+
+    # At round 3, this task has 3 future rounds left before due_round=6.
+    # With the default threshold=2, it should not force a context injection.
+    context_message = build_task_context_message(
+        "Bob",
+        store,
+        current_round=3,
+        total_rounds=9,
+    )
+    assert context_message is None
+
+    monkeypatch.setattr(Config, "TASK_IN_PROGRESS_ESCALATION_THRESHOLD", 3)
+
+    escalated_context = build_task_context_message(
+        "Bob",
+        store,
+        current_round=3,
+        total_rounds=9,
+    )
+    assert escalated_context is not None
+    assert task.issue_key in escalated_context
+    assert "IN PROGRESS" in escalated_context
 
 
 def test_task_guidance_encourages_saving_file_like_artifacts(simulation_root: Path):

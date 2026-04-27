@@ -131,6 +131,10 @@ class Config:
     TASK_ROUND_ENFORCEMENT_ACTION = _get_env_or_default(
         "TASK_ROUND_ENFORCEMENT_ACTION", "block"
     )
+    TASK_DEFAULT_DUE_NEXT_ROUND = _get_bool_env("TASK_DEFAULT_DUE_NEXT_ROUND", True)
+    TASK_IN_PROGRESS_ESCALATION_THRESHOLD = int(
+        os.environ.get("TASK_IN_PROGRESS_ESCALATION_THRESHOLD", "2")
+    )
     TASK_AUTO_ACCEPT_OFFERS = _get_bool_env("TASK_AUTO_ACCEPT_OFFERS", True)
     TASK_AUTO_ACCEPT_NOTE = _get_env_or_default(
         "TASK_AUTO_ACCEPT_NOTE",
@@ -240,6 +244,19 @@ class Config:
         if normalized in {"expire", "block"}:
             return normalized
         return "expire"
+
+    @classmethod
+    def task_default_due_next_round(cls) -> bool:
+        return bool(getattr(cls, "TASK_DEFAULT_DUE_NEXT_ROUND", True))
+
+    @classmethod
+    def task_in_progress_escalation_threshold(cls) -> int:
+        raw_value = getattr(cls, "TASK_IN_PROGRESS_ESCALATION_THRESHOLD", 2)
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            return 2
+        return max(parsed, 0)
 
     @classmethod
     def task_default_round_budget(cls) -> int:
