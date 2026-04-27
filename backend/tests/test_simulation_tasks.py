@@ -3198,4 +3198,158 @@ def test_round_enforcement_idempotency_guard_skips_repeat_action_same_round(
     assert first_pass.applied_count == 1
     assert second_pass.applied_count == 0
     assert second_pass.idempotent_skip_count == 1
+
+
+def test_task_completion_deadline_extension(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Verify multiplier extends due_round correctly."""
+    # Set multiplier to 2x
+    monkeypatch.setattr(Config, "TASK_COMPLETION_ENABLED", True)
+    monkeypatch.setattr(Config, "TASK_COMPLETION_BUDGET_MULTIPLIER", 2.0)
+    monkeypatch.setattr(Config, "TASK_DEFAULT_ROUND_BUDGET", 3)
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    # Create task without explicit due_round; should apply multiplier
+    task = lifecycle.create_task(
+        title="Deadline test",
+        description="Testing multiplier extension",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=5,
+        # due_round=None  # Will be auto-calculated
+    )
+
+    # Expected: created_round=5 + (default_budget=3 * multiplier=2) = 5 + 6 = 11
+    assert task.due_round is not None
+    assert task.due_round >= 11, f"Expected due_round >= 11, got {task.due_round}"
+    assert task.round_budget is not None
+    assert (
+        task.round_budget >= 6
+    ), f"Expected round_budget >= 6, got {task.round_budget}"
+
+
+def test_forced_completion_prompt_in_context(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Verify task context includes completion window tasks."""
+    monkeypatch.setattr(Config, "TASK_COMPLETION_ENABLED", True)
+    monkeypatch.setattr(Config, "TASK_ESCALATION_COMPLETE_WINDOW_ROUNDS", 2)
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    # Create a task due in 1 round (within completion window)
+    task = lifecycle.create_task(
+        title="Completion window test",
+        description="Testing forced completion prompt",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=8,
+        due_round=9,
+    )
+
+    # Build task context at round 8 (1 round before due)
+    context = build_task_context_message(
+        "Bob",
+        store,
+        current_round=8,
+        total_rounds=10,
+    )
+
+    assert context is not None
+    assert "COMPLETION DEADLINE WINDOW" in context
+    assert task.issue_key in context or task.task_id[:8] in context
+    assert "complete_task" in context
+    assert "output=" in context or "output='" in context
+
+
+def test_auto_artifact_capture_on_complete(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Verify output auto-staged as artifact."""
+    monkeypatch.setattr(Config, "TASK_COMPLETION_ENABLED", True)
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.create_task(
+        title="Artifact capture test",
+        description="Testing auto-artifact",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=1,
+        due_round=3,
+    )
+    lifecycle.accept_task(task.issue_key, actor="Bob", round_index=1)
+    lifecycle.start_task(task.issue_key, actor="Bob", round_index=1)
+
+    # Complete with output; should auto-save artifact
+    test_output = "Completed analysis. Key finding: X. Recommendation: Y."
+    completed = lifecycle.complete_task(
+        task.issue_key,
+        actor="Bob",
+        output=test_output,
+        round_index=2,
+    )
+
+    assert completed.status == "done"
+    assert completed.artifact_refs is not None
+    assert len(completed.artifact_refs) > 0, "Expected artifact to be auto-saved"
+
+
+def test_late_completion_recovery(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Verify blocked task can complete within grace period."""
+    monkeypatch.setattr(Config, "TASK_ALLOW_COMPLETION_FROM_BLOCKED", True)
+    monkeypatch.setattr(Config, "TASK_OVERDUE_RECOVERY_ENABLED", True)
+    monkeypatch.setattr(Config, "TASK_OVERDUE_RECOVERY_GRACE_ROUNDS", 2)
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_MODE", "enforce")
+    monkeypatch.setattr(Config, "TASK_ROUND_ENFORCEMENT_ACTION", "block")
+
+    store = get_simulation_task_store("sim_test", base_dir=simulation_root)
+    lifecycle = TaskLifecycleService("sim_test", store=store)
+
+    task = lifecycle.create_task(
+        title="Recovery test",
+        description="Testing late completion",
+        assigned_to="Bob",
+        actor="Alice",
+        created_round=2,
+        due_round=3,
+    )
+    lifecycle.accept_task(task.issue_key, actor="Bob", round_index=2)
+
+    # Enforce blocking at round 4 (1 past due)
+    run_round_enforcement(
+        simulation_id="sim_test",
+        store=store,
+        phase="pre_step",
+        current_round=4,
+        total_rounds=10,
+    )
+
+    blocked_task = store.get_task(task.issue_key)
+    assert blocked_task is not None
+    assert blocked_task.status == "blocked"
+
+    # Attempt completion at round 5 (within +2 grace period)
+    recovered = lifecycle.complete_task(
+        task.issue_key,
+        actor="Bob",
+        output="Recovered and completed late.",
+        round_index=5,
+    )
+
+    assert recovered.status == "done"
+    assert len(recovered.events) > 0
+    last_event = recovered.events[-1]
+    assert last_event.event_type == "completed"
     assert second_pass.failed_count == 0

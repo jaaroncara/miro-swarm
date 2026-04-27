@@ -146,6 +146,31 @@ class Config:
         True,
     )
 
+    # Task completion improvement strategy
+    TASK_COMPLETION_ENABLED = _get_bool_env("TASK_COMPLETION_ENABLED", True)
+    TASK_COMPLETION_BUDGET_MULTIPLIER = float(
+        os.environ.get("TASK_COMPLETION_BUDGET_MULTIPLIER", "2")
+    )
+    TASK_MIN_COMPLETION_ROUNDS_BEFORE_DUE = int(
+        os.environ.get("TASK_MIN_COMPLETION_ROUNDS_BEFORE_DUE", "3")
+    )
+    TASK_COMPLETION_OUTPUT_MAX_CHARS = int(
+        os.environ.get("TASK_COMPLETION_OUTPUT_MAX_CHARS", "500")
+    )
+    TASK_COMPLETION_ARTIFACT_STAGING_DIR = _get_env_or_default(
+        "TASK_COMPLETION_ARTIFACT_STAGING_DIR", "task_artifacts"
+    )
+    TASK_ALLOW_COMPLETION_FROM_BLOCKED = _get_bool_env(
+        "TASK_ALLOW_COMPLETION_FROM_BLOCKED", True
+    )
+    TASK_ESCALATION_COMPLETE_WINDOW_ROUNDS = int(
+        os.environ.get("TASK_ESCALATION_COMPLETE_WINDOW_ROUNDS", "2")
+    )
+    TASK_OVERDUE_RECOVERY_ENABLED = _get_bool_env("TASK_OVERDUE_RECOVERY_ENABLED", True)
+    TASK_OVERDUE_RECOVERY_GRACE_ROUNDS = int(
+        os.environ.get("TASK_OVERDUE_RECOVERY_GRACE_ROUNDS", "2")
+    )
+
     # OASIS platform available actions
     OASIS_TWITTER_ACTIONS = [
         "CREATE_POST",
@@ -295,6 +320,63 @@ class Config:
     @classmethod
     def task_reject_late_assignments(cls) -> bool:
         return bool(getattr(cls, "TASK_REJECT_LATE_ASSIGNMENTS", True))
+
+    @classmethod
+    def task_completion_enabled(cls) -> bool:
+        return bool(getattr(cls, "TASK_COMPLETION_ENABLED", True))
+
+    @classmethod
+    def task_completion_budget_multiplier(cls) -> float:
+        raw_value = getattr(cls, "TASK_COMPLETION_BUDGET_MULTIPLIER", 2.0)
+        try:
+            parsed = float(raw_value)
+        except (TypeError, ValueError):
+            return 2.0
+        return max(parsed, 1.0)
+
+    @classmethod
+    def task_min_completion_rounds_before_due(cls) -> int:
+        raw_value = getattr(cls, "TASK_MIN_COMPLETION_ROUNDS_BEFORE_DUE", 3)
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            return 3
+        return max(parsed, 1)
+
+    @classmethod
+    def task_completion_output_max_chars(cls) -> int:
+        raw_value = getattr(cls, "TASK_COMPLETION_OUTPUT_MAX_CHARS", 500)
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            return 500
+        return max(parsed, 100)
+
+    @classmethod
+    def task_escalation_complete_window_rounds(cls) -> int:
+        raw_value = getattr(cls, "TASK_ESCALATION_COMPLETE_WINDOW_ROUNDS", 2)
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            return 2
+        return max(parsed, 1)
+
+    @classmethod
+    def task_allow_completion_from_blocked(cls) -> bool:
+        return bool(getattr(cls, "TASK_ALLOW_COMPLETION_FROM_BLOCKED", True))
+
+    @classmethod
+    def task_overdue_recovery_enabled(cls) -> bool:
+        return bool(getattr(cls, "TASK_OVERDUE_RECOVERY_ENABLED", True))
+
+    @classmethod
+    def task_overdue_recovery_grace_rounds(cls) -> int:
+        raw_value = getattr(cls, "TASK_OVERDUE_RECOVERY_GRACE_ROUNDS", 2)
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            return 2
+        return max(parsed, 0)
 
     @classmethod
     def validate(cls):

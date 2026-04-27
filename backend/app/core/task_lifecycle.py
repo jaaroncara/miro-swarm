@@ -657,6 +657,31 @@ class TaskLifecycleService:
         )
         return updated
 
+    def _can_complete_late(
+        self, task: SimulationTask, current_round: Optional[int]
+    ) -> bool:
+        """
+        Determine if a task can be completed from blocked state (recovery mode).
+
+        Returns True if:
+        - Task is in blocked state
+        - Recovery is enabled in config
+        - Current round is within grace period after due_round
+        """
+        if not Config.task_allow_completion_from_blocked():
+            return False
+
+        if task.status != TASK_STATUS_BLOCKED:
+            return False
+
+        if current_round is None:
+            return False
+
+        grace_rounds = Config.task_overdue_recovery_grace_rounds()
+        overdue_by = current_round - task.due_round
+
+        return overdue_by <= grace_rounds
+
     def complete_task(
         self,
         task_ref: str,
@@ -672,6 +697,20 @@ class TaskLifecycleService:
             raise TaskLifecycleError(
                 f"Task {task.issue_key} must be accepted before it can be completed."
             )
+
+        # Allow completion from blocked state if within recovery window
+        current_round = self._resolve_transition_round_index(round_index)
+        if task.status == TASK_STATUS_BLOCKED:
+            if not self._can_complete_late(task, current_round):
+                grace_rounds = Config.task_overdue_recovery_grace_rounds()
+                overdue_by = (current_round or 0) - task.due_round
+                raise TaskLifecycleError(
+                    f"Task {task.issue_key} is blocked and cannot be completed. "
+                    f"Due: round {task.due_round}, Current: round {current_round}, "
+                    f"Overdue by: {overdue_by} rounds (recovery window: +{grace_rounds} rounds)"
+                )
+            # If we get here, allow transition despite blocked status (recovery)
+
         if task.status in TERMINAL_TASK_STATUSES:
             raise TaskLifecycleError(f"Task {task.issue_key} is already terminal.")
 
@@ -689,7 +728,7 @@ class TaskLifecycleService:
             event_type="completed",
             event_details=event_details,
             chat_refs=chat_refs,
-            round_index=self._resolve_transition_round_index(round_index),
+            round_index=current_round,
         )
         if updated is None:
             raise TaskLifecycleError(f"Task not found: {task_ref}")
@@ -1038,9 +1077,19 @@ class TaskLifecycleService:
                 default_round_budget = Config.task_default_round_budget()
                 if normalized_created_round is not None:
                     normalized_round_budget = default_round_budget
-                    normalized_due_round = (
-                        normalized_created_round + default_round_budget
-                    )
+
+                    # Apply completion budget multiplier for deadline extension
+                    if Config.task_completion_enabled():
+                        multiplier = Config.task_completion_budget_multiplier()
+                        extended_budget = int(default_round_budget * multiplier)
+                        normalized_due_round = (
+                            normalized_created_round + extended_budget
+                        )
+                    else:
+                        normalized_due_round = (
+                            normalized_created_round + default_round_budget
+                        )
+
                     if state_total_rounds is not None:
                         normalized_due_round = min(
                             normalized_due_round,

@@ -41,6 +41,37 @@ def task_requires_agent_response(
     )
 
 
+def _should_prompt_completion(
+    task: Any,
+    *,
+    current_round: int | None = None,
+    total_rounds: int | None = None,
+) -> bool:
+    """
+    Detect if task is in final window before deadline and needs completion push.
+
+    Returns True if:
+    - Task is in non-terminal status (open, in_progress, blocked)
+    - Current round is within final completion window before due_round
+    - Completion prompts are enabled in config
+    """
+    if not Config.task_completion_enabled():
+        return False
+
+    # Don't prompt already-terminal tasks
+    if task.status in {"declined", "expired", "done"}:
+        return False
+
+    if current_round is None or task.due_round is None:
+        return False
+
+    window = Config.task_escalation_complete_window_rounds()
+    remaining_until_due = task.due_round - current_round
+
+    # Return True if we're in the final window (e.g., last 2 rounds before due)
+    return 0 <= remaining_until_due <= window
+
+
 def build_task_context_message(
     agent_name: str,
     store: Any,
@@ -92,7 +123,19 @@ def build_task_context_message(
     # Priority order is: offers, accepted work, then blocked work near expiry.
     tasks = offered_tasks + open_tasks + in_progress_tasks + blocked_tasks
 
-    if not tasks:
+    # Separately, identify tasks in completion deadline window
+    all_tasks = store.list_tasks(assigned_to=agent_name)
+    completion_due_tasks = [
+        t
+        for t in all_tasks
+        if _should_prompt_completion(
+            t,
+            current_round=current_round,
+            total_rounds=total_rounds,
+        )
+    ]
+
+    if not tasks and not completion_due_tasks:
         return None
 
     future_rounds_remaining = _future_rounds_remaining(
@@ -207,6 +250,23 @@ def build_task_context_message(
                 "  A plain reply is enough here; only use MCP task actions if the task status is changing again."
             )
 
+        lines.append("")
+
+    # Add completion deadline window tasks (separate section)
+    if completion_due_tasks:
+        lines.append("")
+        lines.append("=== COMPLETION DEADLINE WINDOW ===")
+        window = Config.task_escalation_complete_window_rounds()
+        lines.append(
+            f"The following task(s) are due in {window} round(s). Complete them NOW:\n"
+        )
+        for task in completion_due_tasks:
+            issue_key = task.issue_key or task.task_id[:8]
+            remaining_rounds = task.due_round - current_round if current_round else 0
+            lines.append(f"- **{issue_key}** — {task.title}")
+            lines.append(f"  Status: {task.status} | Due: round {task.due_round} | Remaining: {remaining_rounds} round(s)")
+            lines.append(f"  ACTION: Call `complete_task('{issue_key}', output='<summary>')`")
+            lines.append(f"  Example: 'Completed market analysis. Key findings: XYZ. Recommendation: ABC.'\n")
         lines.append("")
 
     lines.append("=== END REQUIRED ACTIONS ===")

@@ -3,6 +3,7 @@
 import base64
 import binascii
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from app.core.task_lifecycle import (
 )
 
 mcp = FastMCP("task-tools")
+
+logger = logging.getLogger(__name__)
 
 _STATUS_ORDER = list(TASK_STATUS_ORDER)
 
@@ -357,14 +360,43 @@ async def complete_task(
     output: str,
     actor: str,
     public_update: str = "",
+    auto_save_artifact: bool = True,
 ) -> str:
     """Complete one of your assigned tasks using its visible issue key."""
     try:
+        lifecycle = _get_lifecycle(simulation_id)
+        task = lifecycle.get_task(issue_key)
+        if not task:
+            raise TaskLifecycleError(f"Task not found: {issue_key}")
+
+        # Auto-stage output as artifact if enabled and no artifacts exist
+        if auto_save_artifact and output and not task.artifact_refs:
+            normalized_output = output.strip()
+            if normalized_output:
+                artifact_filename = f"{issue_key}_completion_output.txt"
+                try:
+                    lifecycle.save_artifact(
+                        issue_key,
+                        actor=actor,
+                        filename=artifact_filename,
+                        content=normalized_output,
+                        media_type="text/plain",
+                        kind="deliverable",
+                        note="Auto-captured from completion output",
+                    )
+                except Exception as artifact_exc:
+                    # Log but don't fail completion on artifact save error
+                    logger.warning(
+                        "Failed to auto-save artifact for %s: %s",
+                        issue_key,
+                        artifact_exc,
+                    )
+
         normalized_public_update = _normalize_public_update(
             public_update,
             default=f"Completed {issue_key}. Deliverable shared.",
         )
-        task = _get_lifecycle(simulation_id).complete_task(
+        task = lifecycle.complete_task(
             task_ref=issue_key,
             actor=actor,
             output=output,

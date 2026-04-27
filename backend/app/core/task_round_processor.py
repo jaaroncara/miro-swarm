@@ -903,3 +903,95 @@ def _infer_single_active_task_for_actor(
     if len(candidate_tasks) != 1:
         return None
     return candidate_tasks[0]
+
+
+def detect_incomplete_tasks(
+    store: Any,
+    current_round: Optional[int],
+    total_rounds: Optional[int] = None,
+) -> dict[str, Any]:
+    """
+    Scan for tasks at risk of expiry and log completion metrics.
+
+    Parameters
+    ----------
+    store : Any
+        Task store instance
+    current_round : int or None
+        Current simulation round
+    total_rounds : int or None
+        Total rounds in simulation
+
+    Returns
+    -------
+    dict
+        Completion risk assessment with keys: risk (critical/high/medium lists),
+        counts (status distribution)
+    """
+    all_tasks = store.list_tasks()
+
+    status_counts = {
+        "offered": 0,
+        "open": 0,
+        "in_progress": 0,
+        "blocked": 0,
+        "done": 0,
+        "declined": 0,
+        "expired": 0,
+    }
+
+    completion_risk = {"critical": [], "high": [], "medium": []}
+
+    for task in all_tasks:
+        status = task.status or "unknown"
+        if status in status_counts:
+            status_counts[status] += 1
+
+        if task.status in ("offered", "open", "in_progress", "blocked"):
+            if current_round is not None and task.due_round is not None:
+                rounds_remaining = task.due_round - current_round
+
+                if rounds_remaining < 0:
+                    completion_risk["critical"].append(
+                        task.issue_key or task.task_id[:8]
+                    )
+                elif rounds_remaining == 0:
+                    completion_risk["high"].append(task.issue_key or task.task_id[:8])
+                elif rounds_remaining <= 1:
+                    completion_risk["high"].append(task.issue_key or task.task_id[:8])
+                elif rounds_remaining <= 2:
+                    completion_risk["medium"].append(task.issue_key or task.task_id[:8])
+
+    # Log metrics
+    log_task_pipeline_metric(
+        "task_completion_health",
+        current_round=current_round,
+        total_rounds=total_rounds,
+        status_counts=status_counts,
+        critical_risk=completion_risk["critical"],
+        high_risk=completion_risk["high"],
+        medium_risk=completion_risk["medium"],
+        done_count=status_counts["done"],
+        incomplete_count=(
+            status_counts["offered"]
+            + status_counts["open"]
+            + status_counts["in_progress"]
+            + status_counts["blocked"]
+        ),
+    )
+
+    if completion_risk["critical"]:
+        logger.warning(
+            "CRITICAL: %d task(s) overdue and at risk of expiry: %s",
+            len(completion_risk["critical"]),
+            ", ".join(completion_risk["critical"]),
+        )
+
+    if completion_risk["high"]:
+        logger.warning(
+            "HIGH PRIORITY: %d task(s) due this round or overdue: %s",
+            len(completion_risk["high"]),
+            ", ".join(completion_risk["high"]),
+        )
+
+    return {"risk": completion_risk, "counts": status_counts}
