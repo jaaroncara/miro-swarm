@@ -551,6 +551,106 @@ def test_task_server_exposes_offer_lifecycle_tools(
     assert "[declined]" in declined_message
 
 
+def test_task_server_mcp_offer_defaults_due_round_to_next_round(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "OASIS_SIMULATION_DATA_DIR", str(simulation_root))
+    monkeypatch.setattr(
+        TaskLifecycleService,
+        "_load_run_state_rounds",
+        lambda self: (4, 9),
+    )
+
+    offer_message = asyncio.run(
+        task_server.offer_task(
+            simulation_id="sim_test",
+            title="Prepare KPI delta memo",
+            description="Summarize week-over-week KPI movement.",
+            assigned_to="Bob",
+            actor="Alice",
+        )
+    )
+
+    assert "Task offered:" in offer_message
+
+    task_detail_raw = asyncio.run(
+        task_server.get_task(
+            simulation_id="sim_test",
+            issue_key="TEST-1",
+            actor="Bob",
+        )
+    )
+    task_detail = json.loads(task_detail_raw)
+    assert task_detail["due_round"] == 5
+    assert task_detail["round_budget"] == 1
+
+
+def test_task_server_lifecycle_tools_attach_public_update_details(
+    simulation_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(Config, "OASIS_SIMULATION_DATA_DIR", str(simulation_root))
+
+    asyncio.run(
+        task_server.offer_task(
+            simulation_id="sim_test",
+            title="Build launch brief",
+            description="Draft the launch brief for leadership.",
+            assigned_to="Bob",
+            actor="Alice",
+        )
+    )
+
+    asyncio.run(
+        task_server.accept_task(
+            simulation_id="sim_test",
+            issue_key="TEST-1",
+            actor="Bob",
+        )
+    )
+
+    asyncio.run(
+        task_server.block_task(
+            simulation_id="sim_test",
+            issue_key="TEST-1",
+            actor="Bob",
+            reason="Waiting on pricing inputs",
+        )
+    )
+
+    asyncio.run(
+        task_server.complete_task(
+            simulation_id="sim_test",
+            issue_key="TEST-1",
+            actor="Bob",
+            output="Uploaded final launch brief.",
+            public_update="Done with the launch brief.",
+        )
+    )
+
+    task = get_simulation_task_store("sim_test", base_dir=simulation_root).get_task(
+        "TEST-1"
+    )
+    assert task is not None
+
+    accepted_event = next(
+        event for event in task.events if event.event_type == "accepted"
+    )
+    blocked_event = next(
+        event for event in task.events if event.event_type == "blocked"
+    )
+    completed_event = next(
+        event for event in task.events if event.event_type == "completed"
+    )
+
+    assert (
+        accepted_event.details["public_update"] == "Accepted TEST-1 and starting now."
+    )
+    assert blocked_event.details["public_update"].startswith("Blocked on TEST-1")
+    assert completed_event.details["public_update"] == "Done with the launch brief."
+
+
 def test_meeting_only_tasks_are_rejected_until_rewritten(simulation_root: Path):
     store = get_simulation_task_store("sim_test", base_dir=simulation_root)
     lifecycle = TaskLifecycleService("sim_test", store=store)

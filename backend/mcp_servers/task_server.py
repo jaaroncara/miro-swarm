@@ -96,6 +96,20 @@ def _format_task_detail(task) -> str:
     return json.dumps(task.to_dict(), ensure_ascii=False, indent=2)
 
 
+def _normalize_public_update(
+    value: str,
+    *,
+    default: str,
+    max_length: int = 160,
+) -> str:
+    normalized = (value or "").strip() or default
+    if len(normalized) > max_length:
+        raise TaskLifecycleError(
+            f"Public status updates must be concise ({max_length} characters max)."
+        )
+    return normalized
+
+
 def _get_lifecycle(simulation_id: str) -> TaskLifecycleService:
     return TaskLifecycleService(simulation_id=simulation_id)
 
@@ -156,13 +170,20 @@ async def accept_task(
     issue_key: str,
     actor: str,
     reason: str = "",
+    public_update: str = "",
 ) -> str:
     """Accept a pending task offer assigned to you."""
     try:
+        normalized_public_update = _normalize_public_update(
+            public_update,
+            default=f"Accepted {issue_key} and starting now.",
+        )
+        normalized_reason = (reason or "").strip() or normalized_public_update
         task = _get_lifecycle(simulation_id).accept_task(
             task_ref=issue_key,
             actor=actor,
-            reason=reason,
+            reason=normalized_reason,
+            event_details={"public_update": normalized_public_update},
         )
         return f"Task accepted: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
@@ -260,15 +281,26 @@ async def update_task_status(
     status: str,
     reason: str = "",
     output: str = "",
+    public_update: str = "",
 ) -> str:
     """Record a progress note or update one of your assigned task statuses."""
     try:
+        normalized_status = (status or "").strip().lower()
+        default_public_update = (
+            f"Updated {issue_key} to {normalized_status or 'latest status'}."
+        )
+        normalized_public_update = _normalize_public_update(
+            public_update,
+            default=default_public_update,
+        )
+        normalized_reason = (reason or "").strip() or normalized_public_update
         task = _get_lifecycle(simulation_id).update_task_status(
             task_ref=issue_key,
             actor=actor,
             status=status,
-            reason=reason,
+            reason=normalized_reason,
             output=output,
+            event_details={"public_update": normalized_public_update},
         )
         return f"Task updated: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
@@ -289,13 +321,22 @@ async def block_task(
     issue_key: str,
     actor: str,
     reason: str,
+    public_update: str = "",
 ) -> str:
     """Mark one of your assigned tasks as blocked and record why."""
     try:
+        normalized_reason = (reason or "").strip()
+        if not normalized_reason:
+            raise TaskLifecycleError("Blocked transitions require a reason.")
+        normalized_public_update = _normalize_public_update(
+            public_update,
+            default=f"Blocked on {issue_key}: {normalized_reason}",
+        )
         task = _get_lifecycle(simulation_id).block_task(
             task_ref=issue_key,
             actor=actor,
-            reason=reason,
+            reason=normalized_reason,
+            event_details={"public_update": normalized_public_update},
         )
         return f"Task blocked: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
@@ -315,13 +356,19 @@ async def complete_task(
     issue_key: str,
     output: str,
     actor: str,
+    public_update: str = "",
 ) -> str:
     """Complete one of your assigned tasks using its visible issue key."""
     try:
+        normalized_public_update = _normalize_public_update(
+            public_update,
+            default=f"Completed {issue_key}. Deliverable shared.",
+        )
         task = _get_lifecycle(simulation_id).complete_task(
             task_ref=issue_key,
             actor=actor,
             output=output,
+            event_details={"public_update": normalized_public_update},
         )
         return f"Task completed: {_format_task_summary(task)}"
     except (TaskAuthorizationError, TaskLifecycleError) as exc:
