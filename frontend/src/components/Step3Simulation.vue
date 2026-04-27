@@ -765,6 +765,11 @@ const hasMentionContext = (entry) => {
 }
 
 const getTaskStatusUpdateText = (entry) => {
+  const publicUpdate = (entry?.public_update || entry?.details?.public_update || '').trim()
+  if (publicUpdate) {
+    return publicUpdate
+  }
+
   const actor = entry?.actor || entry?.assigned_to || 'Agent'
   const issueKey = entry?.issue_key || 'task'
 

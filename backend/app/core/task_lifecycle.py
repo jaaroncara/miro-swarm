@@ -363,11 +363,11 @@ class TaskLifecycleService:
         tool_plan: Optional[str] = None,
         chat_refs: Optional[list[dict[str, Any]]] = None,
     ) -> SimulationTask:
-        if (origin or "").strip().lower() == "mcp_offer":
-            due_round, round_budget = self._resolve_mcp_offer_due_defaults(
-                due_round=due_round,
-                round_budget=round_budget,
-            )
+        due_round, round_budget = self._resolve_offer_due_defaults(
+            created_round=created_round,
+            due_round=due_round,
+            round_budget=round_budget,
+        )
 
         task = self._create_task(
             title=title,
@@ -412,25 +412,27 @@ class TaskLifecycleService:
         self._queue_offer_notification(task)
         return task
 
-    def _resolve_mcp_offer_due_defaults(
+    def _resolve_offer_due_defaults(
         self,
         *,
+        created_round: Optional[int],
         due_round: Optional[int],
         round_budget: Optional[int],
     ) -> tuple[Optional[int], Optional[int]]:
-        """Bias MCP offers to the next actionable round when no deadline is supplied."""
+        """Bias offers to the next actionable round when no deadline is supplied."""
         if due_round is not None or round_budget is not None:
             return due_round, round_budget
 
         current_round, total_rounds = self._load_run_state_rounds()
-        if current_round is None:
+        base_round = created_round if created_round is not None else current_round
+        if base_round is None:
             return due_round, round_budget
 
-        next_due_round = current_round + 1
+        next_due_round = base_round + 1
         if total_rounds is not None:
             next_due_round = min(next_due_round, total_rounds)
 
-        derived_round_budget = max(next_due_round - current_round, 0)
+        derived_round_budget = max(next_due_round - base_round, 0)
         return next_due_round, derived_round_budget
 
     def accept_task(

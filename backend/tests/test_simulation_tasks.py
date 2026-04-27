@@ -1370,8 +1370,8 @@ def test_phase_four_lifecycle_defaults_round_metadata_from_run_state(
     )
 
     assert offered.created_round == 4
-    assert offered.due_round == 7
-    assert offered.round_budget == 3
+    assert offered.due_round == 5
+    assert offered.round_budget == 1
     assert offered.events[0].round_index == 4
 
     notifications = store.list_notifications(recipient="Bob", delivered=False)
@@ -2309,7 +2309,11 @@ def test_phase_six_task_list_and_run_status_detail_include_task_events(
         round_budget=3,
     )
     lifecycle.accept_task(
-        task.issue_key, actor="Bob", reason="Taking it", round_index=4
+        task.issue_key,
+        actor="Bob",
+        reason="Taking it",
+        round_index=4,
+        event_details={"public_update": "Done with kickoff review."},
     )
 
     fake_run_state = SimpleNamespace(
@@ -2366,6 +2370,7 @@ def test_phase_six_task_list_and_run_status_detail_include_task_events(
     listed_task = list_response.get_json()["data"]["tasks"][0]
     assert listed_task["deadline"]["remaining_rounds"] == 1
     assert listed_task["offer_pending"] is False
+    assert listed_task["latest_status_note"] == "Done with kickoff review."
 
     detail_response = task_api_client.get(
         "/api/simulation/sim_test/run-status/detail",
@@ -2380,6 +2385,10 @@ def test_phase_six_task_list_and_run_status_detail_include_task_events(
     assert detail_payload["tasks"][0]["issue_key"] == task.issue_key
     assert any(
         event["entry_type"] == "task_event" for event in detail_payload["task_events"]
+    )
+    assert any(
+        event.get("public_update") == "Done with kickoff review."
+        for event in detail_payload["task_events"]
     )
     assert any(item["entry_type"] == "action" for item in detail_payload["merged_feed"])
     assert any(

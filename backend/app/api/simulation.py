@@ -550,6 +550,7 @@ def _build_task_deadline_payload(task, current_round: int | None) -> dict:
 
 
 def _serialize_task_event(simulation_id: str, task, event) -> dict:
+    details = event.details or {}
     return {
         "entry_type": "task_event",
         "simulation_id": simulation_id,
@@ -568,7 +569,8 @@ def _serialize_task_event(simulation_id: str, task, event) -> dict:
         "timestamp": event.created_at,
         "round_num": event.round_index,
         "actor": event.actor,
-        "details": event.details,
+        "details": details,
+        "public_update": details.get("public_update"),
         "chat_refs": [
             _serialize_task_chat_ref(chat_ref) for chat_ref in event.chat_refs or []
         ],
@@ -602,7 +604,14 @@ def _build_task_latest_status_note(task) -> str | None:
     events = getattr(task, "events", []) or []
     for event in reversed(events):
         details = getattr(event, "details", {}) or {}
-        for key in ("summary", "note", "output", "reason", "message"):
+        for key in (
+            "public_update",
+            "summary",
+            "note",
+            "output",
+            "reason",
+            "message",
+        ):
             value = details.get(key)
             if value:
                 return value
