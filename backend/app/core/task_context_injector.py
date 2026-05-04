@@ -53,6 +53,7 @@ def _should_prompt_completion(
     Returns True if:
     - Task is in non-terminal status (open, in_progress, blocked)
     - Current round is within final completion window before due_round
+    - For blocked tasks: within recovery grace window
     - Completion prompts are enabled in config
     """
     if not Config.task_completion_enabled():
@@ -68,7 +69,17 @@ def _should_prompt_completion(
     window = Config.task_escalation_complete_window_rounds()
     remaining_until_due = task.due_round - current_round
 
-    # Return True if we're in the final window (e.g., last 2 rounds before due)
+    # For blocked tasks, also check if within recovery window
+    if task.status == "blocked":
+        if not Config.task_overdue_recovery_enabled():
+            return False
+        if not Config.task_allow_completion_from_blocked():
+            return False
+        overdue_by = current_round - task.due_round
+        grace_rounds = Config.task_overdue_recovery_grace_rounds()
+        return 0 <= overdue_by <= grace_rounds
+
+    # For non-blocked tasks: in final window (e.g., last 2 rounds before due)
     return 0 <= remaining_until_due <= window
 
 
@@ -246,6 +257,22 @@ def build_task_context_message(
                 f"  ACTION REQUIRED: You are still blocked on this task. Reply to {assigner} with the blocker, "
                 f"what you need, and whether the task should be re-scoped before the run ends."
             )
+            # Check if blocked task is in recovery window
+            if (
+                task.status == "blocked"
+                and Config.task_overdue_recovery_enabled()
+                and Config.task_allow_completion_from_blocked()
+                and current_round is not None
+            ):
+                grace_rounds = Config.task_overdue_recovery_grace_rounds()
+                overdue_by = current_round - task.due_round
+                if 0 <= overdue_by <= grace_rounds:
+                    rounds_left = grace_rounds - overdue_by
+                    lines.append(
+                        f"  **RECOVERY OPPORTUNITY**: This task is within recovery grace window. "
+                        f"You can still complete it! Recovery window: {rounds_left} round(s) remaining. "
+                        f"Call `complete_task('{issue_key}', output='...')` NOW if you can resolve the blocker."
+                    )
             lines.append(
                 "  A plain reply is enough here; only use MCP task actions if the task status is changing again."
             )

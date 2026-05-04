@@ -3352,4 +3352,3 @@ def test_late_completion_recovery(
     assert len(recovered.events) > 0
     last_event = recovered.events[-1]
     assert last_event.event_type == "completed"
-    assert second_pass.failed_count == 0

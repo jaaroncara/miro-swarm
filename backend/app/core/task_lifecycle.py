@@ -680,7 +680,19 @@ class TaskLifecycleService:
         grace_rounds = Config.task_overdue_recovery_grace_rounds()
         overdue_by = current_round - task.due_round
 
-        return overdue_by <= grace_rounds
+        if overdue_by <= grace_rounds:
+            rounds_left = grace_rounds - overdue_by
+            logger.info(
+                f"Recovery window for {task.issue_key}: round {current_round} of {current_round + rounds_left} "
+                f"(due: {task.due_round}, overdue by {overdue_by}, grace: {grace_rounds})"
+            )
+            if rounds_left < 1:
+                logger.warning(
+                    f"Recovery window CLOSING for {task.issue_key}: only {rounds_left} round(s) remaining!"
+                )
+            return True
+
+        return False
 
     def complete_task(
         self,
