@@ -437,7 +437,11 @@ class TaskLifecycleService:
         if base_round is None:
             return due_round, round_budget
 
-        next_due_round = base_round + 1
+        base_budget = 1
+        if Config.task_completion_enabled():
+            multiplier = Config.task_completion_budget_multiplier()
+            base_budget = max(1, int(base_budget * multiplier))
+        next_due_round = base_round + base_budget
         if total_rounds is not None:
             next_due_round = min(next_due_round, total_rounds)
 
