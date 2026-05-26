@@ -22,6 +22,8 @@ from ..config import Config
 from ..utils.logger import get_logger
 from .graph_memory_updater import GraphMemoryManager
 from .simulation_ipc import SimulationIPCClient, CommandType, IPCResponse
+from .communication_topology import CommunicationTopology
+from .edge_rewiring_engine import EdgeRewiringEngine, RewiringConfig
 
 logger = get_logger('mirofish.simulation_runner')
 
@@ -225,6 +227,7 @@ class SimulationRunner:
     
     # Graph memory update configuration
     _graph_memory_enabled: Dict[str, bool] = {}  # simulation_id -> enabled
+    _edge_rewiring_engines: Dict[str, EdgeRewiringEngine] = {}  # simulation_id -> engine
     
     @classmethod
     def get_run_state(cls, simulation_id: str) -> Optional[SimulationRunState]:
@@ -382,6 +385,31 @@ class SimulationRunner:
                 cls._graph_memory_enabled[simulation_id] = False
         else:
             cls._graph_memory_enabled[simulation_id] = False
+        
+        # Initialize EdgeRewiringEngine (topology evolution)
+        try:
+            agent_configs = config.get("agent_configs", [])
+            agent_ids = [
+                ac.get("name", ac.get("agent_name", f"agent_{ac.get('agent_id', i)}"))
+                for i, ac in enumerate(agent_configs)
+            ]
+            if agent_ids:
+                topology = CommunicationTopology(agent_ids)
+                rewiring_config = RewiringConfig.from_config()
+                snapshot_dir = os.path.join(
+                    Config.OASIS_SIMULATION_DATA_DIR, simulation_id, "topology", "snapshots"
+                )
+                from pathlib import Path
+                engine = EdgeRewiringEngine(topology, rewiring_config, Path(snapshot_dir))
+                cls._edge_rewiring_engines[simulation_id] = engine
+                logger.info(
+                    f"EdgeRewiringEngine initialized: simulation_id={simulation_id}, "
+                    f"agents={len(agent_ids)}"
+                )
+            else:
+                logger.warning(f"No agents found for EdgeRewiringEngine: simulation_id={simulation_id}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize EdgeRewiringEngine (continuing without it): {e}")
         
         # Determine which script to run (scripts are in backend/scripts/ directory)
         if platform == "twitter":
@@ -548,6 +576,16 @@ class SimulationRunner:
             cls._save_run_state(state)
         
         finally:
+            # Finalize edge rewiring engine
+            if simulation_id in cls._edge_rewiring_engines:
+                try:
+                    engine = cls._edge_rewiring_engines[simulation_id]
+                    stats = engine.finalize()
+                    logger.info(f"EdgeRewiringEngine finalized: simulation_id={simulation_id}, stats={stats}")
+                except Exception as e:
+                    logger.error(f"Failed to finalize EdgeRewiringEngine: {e}")
+                cls._edge_rewiring_engines.pop(simulation_id, None)
+            
             # Stop graph memory updater
             if cls._graph_memory_enabled.get(simulation_id, False):
                 try:
@@ -600,6 +638,9 @@ class SimulationRunner:
         graph_updater = None
         if graph_memory_enabled:
             graph_updater = GraphMemoryManager.get_updater(state.simulation_id)
+        
+        # Get edge rewiring engine (if initialized)
+        edge_rewiring_engine = cls._edge_rewiring_engines.get(state.simulation_id)
         
         try:
             with open(log_path, 'r', encoding='utf-8') as f:
@@ -654,6 +695,10 @@ class SimulationRunner:
                                         state.current_round = round_num
                                     # Overall time takes the maximum of both platforms
                                     state.simulated_hours = max(state.twitter_simulated_hours, state.reddit_simulated_hours)
+                                    
+                                    # Signal round end to edge rewiring engine
+                                    if edge_rewiring_engine:
+                                        edge_rewiring_engine.end_round(round_num)
                                 
                                 continue
                             
@@ -677,6 +722,10 @@ class SimulationRunner:
                             # If graph memory update is enabled, send activity to graph
                             if graph_updater:
                                 graph_updater.add_activity_from_dict(action_data, platform)
+                            
+                            # Update edge rewiring topology
+                            if edge_rewiring_engine:
+                                edge_rewiring_engine.process_activity_from_dict(action_data, platform)
                             
                         except json.JSONDecodeError:
                             pass

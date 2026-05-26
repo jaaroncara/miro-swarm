@@ -248,6 +248,112 @@ def save_snapshot(snapshot: TopologySnapshot, output_dir: Path) -> Path:
     return npz_path
 
 
+def load_snapshot_from_json(json_path: Path) -> TopologySnapshot:
+    """Load a TopologySnapshot from a JSON file produced by CommunicationTopology.save_snapshot().
+
+    The JSON format stores adjacency matrices in COO form:
+      {"rows": [...], "cols": [...], "data": [...], "shape": [n, n]}
+
+    Parameters
+    ----------
+    json_path : Path
+        Path to the JSON snapshot file (e.g., window_003.json).
+
+    Returns
+    -------
+    TopologySnapshot
+        Reconstructed snapshot with directed and symmetric adjacency matrices.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the JSON file does not exist.
+    """
+    json_path = Path(json_path)
+    if not json_path.exists():
+        raise FileNotFoundError(f"Snapshot JSON not found: {json_path}")
+
+    raw = json.loads(json_path.read_text(encoding="utf-8"))
+
+    window_id = raw["window_id"]
+    agent_ids = raw["agent_ids"]
+    agent_types = raw.get("agent_types", {})
+
+    # Reconstruct directed adjacency from COO format
+    adj_dir = raw["adjacency_directed"]
+    shape_dir = tuple(adj_dir["shape"])
+    directed = scipy.sparse.csr_matrix(
+        (
+            np.array(adj_dir["data"], dtype=np.float64),
+            (np.array(adj_dir["rows"], dtype=np.int32), np.array(adj_dir["cols"], dtype=np.int32)),
+        ),
+        shape=shape_dir,
+    )
+
+    # Reconstruct symmetric adjacency from COO format
+    adj_sym = raw["adjacency_symmetric"]
+    shape_sym = tuple(adj_sym["shape"])
+    symmetric = scipy.sparse.csr_matrix(
+        (
+            np.array(adj_sym["data"], dtype=np.float64),
+            (np.array(adj_sym["rows"], dtype=np.int32), np.array(adj_sym["cols"], dtype=np.int32)),
+        ),
+        shape=shape_sym,
+    )
+
+    snapshot = TopologySnapshot(
+        window_id=window_id,
+        adjacency=directed,
+        adjacency_symmetric=symmetric,
+        agent_ids=agent_ids,
+        agent_types=agent_types,
+    )
+
+    logger.debug("Loaded snapshot from JSON: window=%d, agents=%d", window_id, len(agent_ids))
+    return snapshot
+
+
+def load_precomputed_snapshots(snapshots_dir: Path) -> list[TopologySnapshot]:
+    """Load all pre-computed JSON topology snapshots from a directory.
+
+    Scans for files matching ``window_*.json``, sorts by window_id (numeric),
+    and returns an ordered list of TopologySnapshot objects.
+
+    Parameters
+    ----------
+    snapshots_dir : Path
+        Directory containing window_*.json files produced by EdgeRewiringEngine.
+
+    Returns
+    -------
+    list[TopologySnapshot]
+        Ordered list of snapshots (by window_id). Empty list if directory
+        doesn't exist or contains no matching JSON files.
+    """
+    snapshots_dir = Path(snapshots_dir)
+    if not snapshots_dir.exists():
+        return []
+
+    json_files = sorted(snapshots_dir.glob("window_*.json"))
+    if not json_files:
+        return []
+
+    snapshots: list[TopologySnapshot] = []
+    for json_path in json_files:
+        try:
+            snap = load_snapshot_from_json(json_path)
+            snapshots.append(snap)
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.warning("Failed to load snapshot %s: %s", json_path.name, e)
+            continue
+
+    # Sort by window_id to ensure proper ordering
+    snapshots.sort(key=lambda s: s.window_id)
+
+    logger.info("Loaded %d pre-computed snapshots from %s", len(snapshots), snapshots_dir)
+    return snapshots
+
+
 def load_snapshot(output_dir: Path, window_id: int) -> TopologySnapshot:
     """Load a TopologySnapshot from disk.
 

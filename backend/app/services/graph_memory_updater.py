@@ -20,6 +20,27 @@ from .graph_storage import GraphStorage
 
 logger = get_logger('mirofish.graph_memory_updater')
 
+# Typed edge categories for structural mutations
+EDGE_TYPES = {
+    "COLLABORATES_WITH": "Active coordination on shared goals",
+    "CONFLICTS_WITH": "Disagreement or blocking behavior",
+    "DELEGATES_TO": "Directed task handoff",
+    "ALIGNED_WITH": "Shared perspective without direct coordination",
+    "MONITORS": "Information asymmetry - one watches the other",
+    "INTERACTS_WITH": "General interaction (default)",
+}
+
+
+@dataclass
+class StructuralMutation:
+    """Represents a proposed structural change to the graph."""
+    mutation_type: str  # "create_edge", "update_weight", "update_type"
+    source_agent: str
+    target_agent: str
+    edge_type: str  # One of EDGE_TYPES keys
+    weight_delta: Optional[float] = None  # For weight adjustments
+    reason: str = ""  # LLM explanation
+
 
 @dataclass
 class AgentActivity:
@@ -364,16 +385,202 @@ If no mutations are necessary, return an empty array [].
                     success = self.db.update_edge(self.graph_id, edge_id, {"relation": new_relation})
                     if success:
                         mutations_applied += 1
-            
+
+            # --- Phase 2: Structural mutations (new edges, weight adjustments, type changes) ---
+            structural_mutations_applied = 0
+            try:
+                nodes = self.db.get_all_nodes(self.graph_id)
+                node_dicts = [n.to_dict() for n in nodes]
+                edge_dicts = [e.to_dict() for e in current_edges]
+                episode_summaries = [ep.get("content", "") for ep in episodes_data]
+
+                proposed = self._propose_structural_mutations(node_dicts, edge_dicts, episode_summaries)
+                structural_mutations_applied = self._apply_structural_mutations(proposed, storage, nodes, current_edges)
+            except Exception as e:
+                logger.warning(f"Structural mutation phase failed (non-fatal): {e}")
+
             # Mark analyzed episodes as processed
             for ep in episodes_data:
                 storage.mark_episode_processed(ep["id"])
-                
-            return {"status": "success", "mutations": mutations_applied, "message": f"Applied {mutations_applied} mutations"}
+
+            total = mutations_applied + structural_mutations_applied
+            return {
+                "status": "success",
+                "mutations": total,
+                "semantic_mutations": mutations_applied,
+                "structural_mutations": structural_mutations_applied,
+                "message": f"Applied {mutations_applied} semantic + {structural_mutations_applied} structural mutations",
+            }
 
         except Exception as e:
             logger.error(f"Error during graph mutation analysis: {e}")
             return {"status": "error", "message": str(e)}
+
+    def _propose_structural_mutations(
+        self,
+        nodes: List[Dict],
+        edges: List[Dict],
+        episode_summaries: List[str],
+    ) -> List[StructuralMutation]:
+        """Ask LLM to propose structural graph mutations based on observed interactions."""
+        node_list = ", ".join(n.get("name", n.get("uuid", "unknown")) for n in nodes)
+        edge_list = "\n".join(
+            f"  {e.get('source_node_uuid', e.get('source_id', '?'))} -[{e.get('name', e.get('relation', 'UNKNOWN'))} w={e.get('weight', 1.0)}]-> {e.get('target_node_uuid', e.get('target_id', '?'))}"
+            for e in edges
+        )
+        interactions_text = "\n".join(episode_summaries[:50])  # cap to avoid overflow
+
+        edge_type_desc = "\n".join(f"- {k}: {v}" for k, v in EDGE_TYPES.items() if k != "INTERACTS_WITH")
+
+        prompt = f"""You are analyzing agent interaction patterns to propose structural changes to a communication graph.
+
+Current Graph:
+- Nodes (agents): {node_list}
+- Edges:
+{edge_list}
+
+Recent Interactions:
+{interactions_text[:15000]}
+
+Available edge types:
+{edge_type_desc}
+
+Based on the interactions, propose structural mutations:
+1. New edges: Agent pairs that interact frequently but have no graph edge
+2. Weight adjustments: Edges whose weight should increase/decrease based on interaction quality
+3. Type changes: Edges whose type should change based on observed behavior
+
+Respond with a JSON array of mutations:
+[
+  {{"mutation_type": "create_edge", "source": "agent_name", "target": "agent_name", "edge_type": "COLLABORATES_WITH", "weight_delta": 1.0, "reason": "..."}},
+  {{"mutation_type": "update_weight", "source": "agent_name", "target": "agent_name", "edge_type": "DELEGATES_TO", "weight_delta": 0.5, "reason": "..."}},
+  {{"mutation_type": "update_type", "source": "agent_name", "target": "agent_name", "edge_type": "CONFLICTS_WITH", "reason": "..."}}
+]
+
+Only propose mutations with strong evidence from the interactions. Be conservative.
+If no mutations are necessary, return an empty array [].
+"""
+
+        from ..utils.llm_client import LLMClient
+        llm = LLMClient()
+        response_text = llm.chat(
+            [{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+
+        # Parse JSON response
+        import re
+        match = re.search(r'\[.*?\]', response_text, re.DOTALL)
+        if not match:
+            logger.info("Structural mutation LLM returned no JSON array.")
+            return []
+
+        raw_mutations = json.loads(match.group(0))
+
+        # Build node name -> uuid map for validation
+        node_name_map = {n.get("name", "").lower(): n.get("uuid", "") for n in nodes}
+
+        results: List[StructuralMutation] = []
+        for m in raw_mutations:
+            mutation_type = m.get("mutation_type", "")
+            source = m.get("source", "")
+            target = m.get("target", "")
+            edge_type = m.get("edge_type", "INTERACTS_WITH")
+            weight_delta = m.get("weight_delta")
+            reason = m.get("reason", "")
+
+            # Validate
+            if mutation_type not in ("create_edge", "update_weight", "update_type"):
+                logger.debug(f"Skipping unknown mutation_type: {mutation_type}")
+                continue
+            if edge_type not in EDGE_TYPES:
+                logger.debug(f"Skipping invalid edge_type: {edge_type}")
+                continue
+            if source.lower() not in node_name_map or target.lower() not in node_name_map:
+                logger.debug(f"Skipping mutation with unknown agents: {source} -> {target}")
+                continue
+
+            results.append(StructuralMutation(
+                mutation_type=mutation_type,
+                source_agent=source,
+                target_agent=target,
+                edge_type=edge_type,
+                weight_delta=float(weight_delta) if weight_delta is not None else None,
+                reason=reason,
+            ))
+
+        logger.info(f"Proposed {len(results)} structural mutations from LLM.")
+        return results
+
+    def _apply_structural_mutations(
+        self,
+        mutations: List[StructuralMutation],
+        storage: GraphStorage,
+        nodes,
+        current_edges,
+    ) -> int:
+        """Apply validated structural mutations to graph storage. Returns count applied."""
+        if not mutations:
+            return 0
+
+        # Build lookup maps
+        node_name_to_uuid = {n.name.lower(): n.uuid_ for n in nodes}
+        # Edge lookup by (source_uuid, target_uuid)
+        edge_lookup: Dict[tuple, Any] = {}
+        for e in current_edges:
+            edge_lookup[(e.source_node_uuid, e.target_node_uuid)] = e
+            # Also store reverse for undirected lookups
+            edge_lookup[(e.target_node_uuid, e.source_node_uuid)] = e
+
+        applied = 0
+        for m in mutations:
+            source_uuid = node_name_to_uuid.get(m.source_agent.lower())
+            target_uuid = node_name_to_uuid.get(m.target_agent.lower())
+            if not source_uuid or not target_uuid:
+                continue
+
+            try:
+                if m.mutation_type == "create_edge":
+                    # Only create if edge doesn't already exist
+                    if (source_uuid, target_uuid) in edge_lookup:
+                        logger.debug(f"Edge already exists: {m.source_agent} -> {m.target_agent}, skipping create.")
+                        continue
+                    self.db.add_edge(
+                        graph_id=self.graph_id,
+                        source_node_uuid=source_uuid,
+                        target_node_uuid=target_uuid,
+                        name=m.edge_type,
+                        fact=m.reason,
+                        attributes={"created_by": "structural_mutation"},
+                    )
+                    logger.info(f"Created edge: {m.source_agent} -[{m.edge_type}]-> {m.target_agent} | {m.reason}")
+                    applied += 1
+
+                elif m.mutation_type == "update_weight":
+                    edge = edge_lookup.get((source_uuid, target_uuid))
+                    if not edge:
+                        logger.debug(f"No edge found for weight update: {m.source_agent} -> {m.target_agent}")
+                        continue
+                    new_weight = max(0.0, edge.weight + (m.weight_delta or 0.0))
+                    success = self.db.update_edge(self.graph_id, edge.uuid_, {"weight": new_weight})
+                    if success:
+                        logger.info(f"Updated weight: {m.source_agent} -> {m.target_agent} from {edge.weight} to {new_weight} | {m.reason}")
+                        applied += 1
+
+                elif m.mutation_type == "update_type":
+                    edge = edge_lookup.get((source_uuid, target_uuid))
+                    if not edge:
+                        logger.debug(f"No edge found for type update: {m.source_agent} -> {m.target_agent}")
+                        continue
+                    success = self.db.update_edge(self.graph_id, edge.uuid_, {"relation": m.edge_type})
+                    if success:
+                        logger.info(f"Updated type: {m.source_agent} -> {m.target_agent} to {m.edge_type} | {m.reason}")
+                        applied += 1
+
+            except Exception as e:
+                logger.warning(f"Failed to apply structural mutation {m.mutation_type} ({m.source_agent}->{m.target_agent}): {e}")
+
+        return applied
 
     def _worker_loop(self):
         """Background worker loop - batch activities by platform"""

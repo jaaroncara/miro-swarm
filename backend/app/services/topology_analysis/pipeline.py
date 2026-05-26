@@ -21,7 +21,7 @@ from ...config import Config
 from ...core.simulation_task_store import get_simulation_task_store
 from ...utils.logger import get_logger
 from .events import load_events, window_events, get_actors_per_task
-from .graph import build_snapshot, save_snapshot, TopologySnapshot
+from .graph import build_snapshot, save_snapshot, TopologySnapshot, load_precomputed_snapshots
 from .complex import create_simplex_tree_from_adjacency
 from .homology import PersistenceResult, compute_persistence_from_adjacency
 from .symmetry import compute_symmetry_score, compute_symmetry_curve
@@ -120,26 +120,48 @@ def analyze(
 
     # --- Phase 1: Load events and build time windows ---
     events = load_events(simulation_id, base_dir or Path(""))
-    if not events:
-        logger.warning("No events found for simulation %s — aborting.", simulation_id)
-        return {"output_dir": str(_output_dir), "n_windows": 0, "error": "no_events"}
-
-    windows = window_events(events, window_size=_window_size)
-    n_windows = len(windows)
-    logger.info("Phase 1 complete: %d events → %d windows", len(events), n_windows)
 
     # --- Phase 2: Build graphs + snapshots ---
-    agent_ids = _collect_agent_roster(simulation_id, base_dir=base_dir)
-    agent_types = _collect_agent_types(simulation_id, base_dir=base_dir)
-    logger.info("Agent roster: %d agents, %d typed", len(agent_ids), len(agent_types))
-
     snapshots_dir = _output_dir / "snapshots"
-    snapshots: list[TopologySnapshot] = []
-    for window in windows:
-        snapshot = build_snapshot(window, agent_ids)
-        snapshot.agent_types = agent_types
-        save_snapshot(snapshot, snapshots_dir)
-        snapshots.append(snapshot)
+
+    # Check for pre-computed snapshots from EdgeRewiringEngine
+    precomputed = load_precomputed_snapshots(snapshots_dir)
+
+    if precomputed:
+        logger.info("Phase 2: Loaded %d pre-computed snapshots from %s", len(precomputed), snapshots_dir)
+        snapshots = precomputed
+        # Extract agent info from the first snapshot
+        agent_ids = snapshots[0].agent_ids
+        agent_types = snapshots[0].agent_types
+        n_windows = len(snapshots)
+
+        # Window events from Phase 1 (if any) are only needed for reward computation
+        if events:
+            windows = window_events(events, window_size=_window_size)
+            logger.info("Phase 1 complete: %d events → %d windows (used for rewards only)", len(events), len(windows))
+        else:
+            windows = []
+            logger.warning("No events found — reward computation will use zero-reward fallback.")
+    else:
+        # Fall back to building from events (existing behavior)
+        if not events:
+            logger.warning("No events found for simulation %s — aborting.", simulation_id)
+            return {"output_dir": str(_output_dir), "n_windows": 0, "error": "no_events"}
+
+        windows = window_events(events, window_size=_window_size)
+        n_windows = len(windows)
+        logger.info("Phase 1 complete: %d events → %d windows", len(events), n_windows)
+
+        agent_ids = _collect_agent_roster(simulation_id, base_dir=base_dir)
+        agent_types = _collect_agent_types(simulation_id, base_dir=base_dir)
+        logger.info("Agent roster: %d agents, %d typed", len(agent_ids), len(agent_types))
+
+        snapshots: list[TopologySnapshot] = []
+        for window in windows:
+            snapshot = build_snapshot(window, agent_ids)
+            snapshot.agent_types = agent_types
+            save_snapshot(snapshot, snapshots_dir)
+            snapshots.append(snapshot)
 
     logger.info("Phase 2 complete: %d snapshots built and saved", len(snapshots))
 
@@ -167,8 +189,13 @@ def analyze(
     logger.info("Phase 5 complete: null thresholds computed (M=%d)", _null_m)
 
     # --- Phase 6: Reward series ---
-    rewards = compute_reward_series(windows, agent_types)
-    logger.info("Phase 6 complete: reward series computed")
+    if windows:
+        rewards = compute_reward_series(windows, agent_types)
+        logger.info("Phase 6 complete: reward series computed")
+    else:
+        # No events available — use zero-reward fallback
+        rewards = np.zeros(n_windows, dtype=np.float64)
+        logger.warning("Phase 6: no events available — using zero-reward fallback (n=%d)", n_windows)
 
     # --- Phase 7: Hypothesis tests ---
     edge_counts = [int(s.adjacency_symmetric.nnz // 2) for s in snapshots]

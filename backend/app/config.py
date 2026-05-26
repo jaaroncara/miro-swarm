@@ -386,6 +386,19 @@ class Config:
     TOPOLOGY_REWARD_BETA = float(os.environ.get("TOPOLOGY_REWARD_BETA", "1.0"))
     TOPOLOGY_REWARD_GAMMA = float(os.environ.get("TOPOLOGY_REWARD_GAMMA", "0.1"))
 
+    # Communication topology rewiring (dynamic edge evolution)
+    TOPOLOGY_DECAY_LAMBDA = float(os.environ.get("TOPOLOGY_DECAY_LAMBDA", "0.95"))
+    TOPOLOGY_PRUNE_THRESHOLD = float(os.environ.get("TOPOLOGY_PRUNE_THRESHOLD", "0.05"))
+    TOPOLOGY_SNAPSHOT_INTERVAL = int(os.environ.get("TOPOLOGY_SNAPSHOT_INTERVAL", "5"))
+
+    # Interaction weight deltas per action type
+    TOPOLOGY_WEIGHT_COMMENT = float(os.environ.get("TOPOLOGY_WEIGHT_COMMENT", "1.0"))
+    TOPOLOGY_WEIGHT_QUOTE = float(os.environ.get("TOPOLOGY_WEIGHT_QUOTE", "0.8"))
+    TOPOLOGY_WEIGHT_REPOST = float(os.environ.get("TOPOLOGY_WEIGHT_REPOST", "0.6"))
+    TOPOLOGY_WEIGHT_FOLLOW = float(os.environ.get("TOPOLOGY_WEIGHT_FOLLOW", "0.5"))
+    TOPOLOGY_WEIGHT_LIKE = float(os.environ.get("TOPOLOGY_WEIGHT_LIKE", "0.3"))
+    TOPOLOGY_WEIGHT_MUTE = float(os.environ.get("TOPOLOGY_WEIGHT_MUTE", "-0.5"))
+
     @classmethod
     def validate(cls):
         """Validate required configuration."""
