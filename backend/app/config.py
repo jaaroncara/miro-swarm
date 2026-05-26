@@ -378,6 +378,14 @@ class Config:
             return 2
         return max(parsed, 0)
 
+    # --- Topology Analysis ---
+    TOPOLOGY_WINDOW_SIZE = int(os.environ.get("TOPOLOGY_WINDOW_SIZE", "5"))
+    TOPOLOGY_NULL_MODEL_M = int(os.environ.get("TOPOLOGY_NULL_MODEL_M", "200"))
+    TOPOLOGY_MAX_DIM = int(os.environ.get("TOPOLOGY_MAX_DIM", "6"))
+    TOPOLOGY_REWARD_ALPHA = float(os.environ.get("TOPOLOGY_REWARD_ALPHA", "1.0"))
+    TOPOLOGY_REWARD_BETA = float(os.environ.get("TOPOLOGY_REWARD_BETA", "1.0"))
+    TOPOLOGY_REWARD_GAMMA = float(os.environ.get("TOPOLOGY_REWARD_GAMMA", "0.1"))
+
     @classmethod
     def validate(cls):
         """Validate required configuration."""

@@ -6,6 +6,7 @@ from .resource_loader import ResourceLoader, WorkbenchResources
 from .session_manager import SessionManager, WorkbenchSessionState
 from .task_manager import TaskManager
 from ..tools import (
+    AnalyzeTopologyTool,
     BuildGraphTool,
     GenerateOntologyTool,
     GenerateReportTool,
@@ -60,6 +61,10 @@ class WorkbenchSession:
             report_store=self.resources.report_store,
             task_manager=self.task_manager,
             session_manager=self.session_manager,
+        )
+        self.analyze_topology_tool = AnalyzeTopologyTool(
+            simulation_store=self.resources.simulation_store,
+            task_manager=self.task_manager,
         )
 
     @classmethod

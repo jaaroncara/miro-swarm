@@ -2,6 +2,8 @@
 
 A swarm intelligence prediction engine designed for simulating business scenarios to model outcomes. Upload documents describing any scenario, market shift, or business strategy, and the engine simulates thousands of AI agents (acting as customers, competitors, employees, or stakeholders) reacting in a networked environment to predict how events and decisions might unfold.
 
+The engine also includes a **topology analysis pipeline** that treats each completed simulation as a source of time-indexed coordination data — building a communication graph from MCP task-tool interactions, running Topological Data Analysis (TDA), and surfacing emergent structural properties (Betti numbers, platonic symmetry scores, persistent homology) for research or advanced diagnostics.
+
 > Built on a fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish) — adapted for business scenario modeling, local graph storage, and expanded LLM provider support.
 
 ## What it does
@@ -11,6 +13,7 @@ A swarm intelligence prediction engine designed for simulating business scenario
 3. **The engine builds a business model** — Extracts key topics, statistics, and relationships into a knowledge graph — then generates AI agent personas with distinct roles, priorities, opinions, and personalities
 4. **Agents simulate team interactions** — A multi-agent simulation where personas post, reply, debate, and adapt to the incoming scenario as various stakeholders
 5. **Get a business report** — An AI analyst reviews the aggregate simulation data to produce actionable findings. You can chat with the report agent or interview individual simulated stakeholders for deeper insights.
+6. **Analyze emergent topology** *(optional)* — Run post-simulation topology analysis on the MCP coordination graph: extract time-windowed communication networks, compute persistent homology (Betti numbers, persistence diagrams), platonic symmetry scores, and statistical hypothesis tests (H1/H2/H3) with publication-ready figures.
 
 ## Changes from upstream
 
@@ -115,15 +118,30 @@ backend/
     api/           Thin Flask REST endpoints (graph, simulation, report)
     core/          Workbench session, session registry, resource loader, tasks
     resources/     Adapters for projects, documents, Kuzu, simulations, reports
-    tools/         Composable workbench operations (ingest, build, prepare, run, report)
+    tools/         Composable workbench operations:
+                     build_graph, generate_ontology, prepare_simulation,
+                     run_simulation, generate_report, analyze_topology (NEW)
     services/
-      graph_storage.py     GraphStorage abstraction + KuzuDB/JSON backends
-      graph_db.py          Compatibility facade over per-graph storage backends
-      entity_extractor.py  LLM-based entity/relationship extraction
-      graph_builder.py     Ontology → graph pipeline
-      simulation_runner.py OASIS multi-agent simulation (subprocess)
-      report_agent.py      ReACT agent with tool-calling for reports
-      graph_tools.py       Search, interview, and analysis tools
+      graph_storage.py          GraphStorage abstraction + KuzuDB/JSON backends
+      graph_db.py               Compatibility facade over per-graph storage backends
+      entity_extractor.py       LLM-based entity/relationship extraction
+      graph_builder.py          Ontology → graph pipeline
+      simulation_runner.py      OASIS multi-agent simulation (subprocess)
+      report_agent.py           ReACT agent with tool-calling for reports
+      graph_tools.py            Search, interview, and analysis tools
+      topology_analysis/        (NEW) Post-simulation TDA pipeline:
+        events.py               Load + window MCP task events from SimulationTaskStore
+        graph.py                Build directed weighted G_t per window, symmetrize
+        complex.py              gudhi Rips complex on symmetrized adjacency
+        homology.py             Persistent homology → Betti numbers, diagrams, k*
+        symmetry.py             Platonic symmetry score S(K) (kernel alignment)
+        nullmodel.py            M=200 weight permutations → δ_P thresholds
+        reward.py               Synthetic R_t from task telemetry
+        figures.py              Publication-ready Figures 1–4 (matplotlib)
+        pipeline.py             analyze(simulation_id) orchestrator
+        tests/h1.py             H1: density-matched higher-order vs pairwise
+        tests/h2.py             H2: S monotonicity + structural features
+        tests/h3.py             H3: OLS regression of R on topological predictors
     utils/
       llm_client.py        Multi-provider LLM client (OpenAI/Anthropic/CLI)
       mcp_manager.py       MCP client singleton (tool discovery, execution, sync bridge)
@@ -131,19 +149,123 @@ backend/
   scripts/                 OASIS simulation runner scripts (Slack + Email)
 ```
 
-Workbench session metadata is persisted under `backend/uploads/workbench_sessions/`, and long-running task state is persisted under `backend/uploads/tasks/`.
-
-The backend is being refactored toward a pi-style shape: one workbench session core, pluggable resource adapters, composable tools, and thin API shells.
+Workbench session metadata is persisted under `backend/uploads/workbench_sessions/`, and long-running task state is persisted under `backend/uploads/tasks/`. Topology analysis artifacts are written to `backend/data/<simulation_id>/topology/`.
 
 ## How the pipeline works
 
 ```
 Document upload → LLM ontology extraction → Knowledge graph (GraphStorage → KuzuDB by default)
-    → Entity filtering → Agent persona generation (Stakeholders, Competitors, etc.)
+    → Entity filtering → Agent persona generation (types & counts emerge from the KG)
     → OASIS behavioral simulation (Slack / Email)  ←──  MCP tools (optional)
     → Graph memory updates → Report generation (ReACT agent)  ←──  MCP tools (optional)
     → Interactive chat with report agent or individual agents
+    → Topology analysis (optional) ─────────────────────────────────────────────────────┐
+         MCP task events → G_t (windowed graph) → Rips complex → persistent homology    │
+         → Betti curves, S(K), δ_P null model, R_t reward → H1/H2/H3 tests + Figures   │
+         → backend/data/<simulation_id>/topology/ ◄───────────────────────────────────────┘
 ```
+
+## Topology Analysis
+
+The topology analysis pipeline runs **after** a simulation completes. It reads the MCP `task_server` coordination log from `SimulationTaskStore`, builds a time-indexed communication graph from observed task-handoff patterns, and computes Topological Data Analysis (TDA) metrics over the sequence of snapshots.
+
+### What it computes
+
+| Metric | Description |
+|--------|-------------|
+| **G_t** | Directed weighted communication graph per time window (observed, not imposed) |
+| **Betti numbers** b₀, b₁, ..., b_k | Connected components, loops, and higher-order voids in the coordination complex |
+| **Persistence diagrams** D_k | Birth/death filtration values per dimension |
+| **k\*** | Max persistent dimension with features above the null threshold |
+| **S(K)** | Platonic symmetry score — kernel alignment of K against a maximally-symmetric circulant reference |
+| **δ_P** | Null-model significance threshold (M=200 weight permutations, 95th percentile) |
+| **R_t** | Synthetic observed reward from task telemetry (completion rate, type coverage, latency) |
+| **H1** | Higher-order interactions vs. pairwise baseline after Mahalanobis density matching |
+| **H2** | S(K) monotonicity, top-q vs. bottom-q, b₀=1, single dominant high-dim feature |
+| **H3** | OLS regression: R_t ~ β₀ + β₁·TP1 + β₂·TP2 + β₃·\|E\| + β₄·k* |
+
+### Running topology analysis
+
+```python
+from app.services.topology_analysis.pipeline import analyze
+
+results = analyze("your-simulation-id")
+# Outputs land in: backend/data/<simulation_id>/topology/
+#   snapshots/          sparse adjacency matrices per window (.npz + _meta.json)
+#   metrics.json        H1/H2/H3 results + summary stats
+#   figures/            fig1_reward.png, fig2_betti.png, fig3_persistence.png, fig4_symmetry.png
+```
+
+Or via the `WorkbenchSession` tool (runs in the background):
+
+```python
+session.analyze_topology_tool.start("your-simulation-id")
+```
+
+Or via the REST API:
+
+```bash
+# Start analysis (returns task_id for polling)
+curl -X POST http://localhost:5001/api/topology/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"simulation_id": "your-simulation-id"}'
+
+# Poll status
+curl http://localhost:5001/api/topology/status/<task_id>
+
+# Retrieve results
+curl http://localhost:5001/api/topology/results/your-simulation-id
+```
+
+### Window-size sensitivity sweep
+
+Before committing to a `TOPOLOGY_WINDOW_SIZE`, run the sensitivity sweep to see how results vary:
+
+```bash
+# CLI sweep (from backend/)
+uv run python -m app.services.topology_analysis.sweep your-simulation-id \
+  --sizes 3 5 7 10 15 \
+  --null-m 50
+
+# Report is written to: backend/data/<sim_id>/topology/sweep/sweep_report.json
+```
+
+```python
+# Python API
+from app.services.topology_analysis.sweep import run_window_sweep
+
+report = run_window_sweep("your-simulation-id", window_sizes=[3, 5, 7, 10, 15])
+# report["sensitivity"] shows coefficient of variation for H1/H3 metrics
+```
+
+The sweep prints a table of H1 Cohen's d, H3 R², and H2 pass/fail for each window size, plus a sensitivity summary indicating whether results are stable across window choices.
+
+### Configuration
+
+Add these to your `.env` to tune the analysis:
+
+```env
+# Number of simulation rounds per time window (default: 5)
+TOPOLOGY_WINDOW_SIZE=5
+
+# Null-model permutations for δ_P threshold (default: 200)
+TOPOLOGY_NULL_MODEL_M=200
+
+# Max simplex dimension, k (default: 6)
+TOPOLOGY_MAX_DIM=6
+
+# Reward weights: R_t = α·completion + β·type_coverage_bonus² − γ·latency
+TOPOLOGY_REWARD_ALPHA=1.0
+TOPOLOGY_REWARD_BETA=1.0
+TOPOLOGY_REWARD_GAMMA=0.1
+```
+
+### Key design decisions
+
+- **G_t is observed, not optimized.** The communication graph emerges from which agents jointly touched tasks via MCP tool calls — it is never controlled or rewired by the analysis.
+- **Entity types are document-driven.** The population of agents and their types come entirely from the knowledge graph extracted from your uploaded documents. There are no preset role lists.
+- **Coordination events = MCP tool invocations.** Any call to `task_server` tools (`offer_task`, `accept_task`, `start_task`, etc.) carrying a shared `task_id` constitutes an edge in G_t. Co-participation by k+1 distinct agents on one task defines a k-simplex.
+- **Sparse by default.** G_t is stored as `scipy.sparse.csr_matrix`; the clique complex caps at `k=6` to keep memory bounded at large agent populations.
 
 ## MCP tool integration
 
